@@ -1,11 +1,10 @@
 /**
  * main.js
- * -------------
- * Lógica front-end:
+ * Lógica:
  *  - Cargar una (o varias) playlists, pedirla(s) a /api/playlist
  *  - Almacenar resultados en localStorage (comprimidos con LZString)
  *  - Manejo de IFrame Player API para reproducir, onError => pasar al siguiente.
- *  - Búsqueda local con Elasticlunr
+ *  - Búsqueda local con Elasticlunr (En construccion)
  */
 
 const KEY_PLAYLIST = "myrnd-playlist"; // para JSON comprimido
@@ -14,13 +13,13 @@ const KEY_PID      = "myrnd-pid";      // IDs guardados
 
 let videos = [];
 let currentIndex = 0;
-let player = null; // Instancia de la IFrame Player
+let player = null; // Instancia de la IFrame Player (evitar video no disponible en youtube)
 
 document.addEventListener("DOMContentLoaded", () => {
   const loadBtn = document.getElementById("loadBtn");
   const resumeBtn = document.getElementById("resumeBtn");
 
-  // Si en localStorage tenemos datos previos:
+
   if (localStorage.getItem(KEY_PLAYLIST) && localStorage.getItem(KEY_IDX) && localStorage.getItem(KEY_PID)) {
     resumeBtn.classList.remove("hidden");
   }
@@ -51,7 +50,7 @@ document.addEventListener("DOMContentLoaded", () => {
     playVideoAtIndex(idx);
   });
 
-  // Configurar búsqueda local
+  // Configurar búsqueda local (construccion)
   const searchInput = document.getElementById("searchInput");
   const searchResults = document.getElementById("searchResults");
 
@@ -61,7 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
       searchResults.classList.add("hidden");
       return;
     }
-    // Filtrar usando elasticlunr
+    // Filtrar usando elasticlunr (construccion)
     const results = idxSearch(query);
     searchResults.innerHTML = "";
 
@@ -91,7 +90,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 /**
- * Llama a nuestro servidor /api/playlist?playlistId=...
+ * Llama al servidor /api/playlist?playlistId=...
  */
 async function loadPlaylist(pid) {
   try {
@@ -108,7 +107,7 @@ async function loadPlaylist(pid) {
     }
 
     videos = data.response;
-    // Si quieres barajar (Fisher-Yates):
+    // Randomizar (Fisher-Yates):
     shuffleArray(videos);
 
     currentIndex = 0;
@@ -248,7 +247,7 @@ function shuffleArray(arr) {
 }
 
 /**
- * Búsqueda local con elasticlunr
+ * Búsqueda local con elasticlunr (construccion)
  */
 let elasticIndex = null;
 function buildIndexIfNeeded() {
