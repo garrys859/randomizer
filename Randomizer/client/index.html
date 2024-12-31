@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Mi Randomizador</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- LZString y Elasticlunr (minificados) -->
+  <script src="lz-string.min.js"></script>
+  <script src="elasticlunr.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>Mi Randomizador de Playlists de YouTube</h1>
+
+    <label for="playlistId">Playlist ID o IDs (usa ~:- para múltiples):</label><br>
+    <input 
+      type="text" 
+      id="playlistId" 
+      size="50" 
+      placeholder="Ej: PLxxxxx o PL1234~:-PL5678"
+    >
+    <button id="loadBtn">Cargar Playlist</button>
+    <button id="resumeBtn" class="hidden">Retomar Sesión Anterior</button>
+
+    <br><br>
+    <div id="playerArea" class="player-area hidden">
+      <div id="iframe-container"></div>
+      <div class="controls">
+        <button id="prevBtn">Anterior</button>
+        <button id="nextBtn">Siguiente</button>
+      </div>
+      <br>
+      <div>
+        <strong>Búsqueda local:</strong>
+        <input type="search" id="searchInput" placeholder="Mínimo 3 caracteres">
+        <select id="searchResults" size="8" class="hidden"></select>
+      </div>
+      <br>
+      <div>
+        <select id="playlistView" size="10" class="hidden"></select>
+      </div>
+    </div>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
