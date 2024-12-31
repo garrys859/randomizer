@@ -7,73 +7,29 @@
  * 3. Llama a la YouTube Data API para recoger todos los videos de la playlist (paginando).
  * 4. Devuelve la lista en JSON al front-end.
  */
+
+require('dotenv').config();        // Carga variables de entorno (YT_API_KEY)
 const express = require('express');
+const cors = require('cors');
 const fetch = require('node-fetch');
-require('dotenv').config();
 
 const app = express();
+
+// 1) Habilitamos CORS antes de definir las rutas
+app.use(cors());
+
 const PORT = process.env.PORT || 3000;
 
-// Tu API key de YouTube (desde .env)
+// Tomamos la API key de las variables de entorno
 const YT_API_KEY = process.env.YT_API_KEY;
-
 if (!YT_API_KEY) {
-  console.error("ERROR: Debes configurar YT_API_KEY en tu archivo .env");
+  console.error("ERROR: Debes configurar YT_API_KEY en tu archivo .env o en las variables de entorno.");
   process.exit(1);
 }
 
-// Servir archivos estáticos de la carpeta ../client
-app.use(express.static('../client'));
-
 /**
- * GET /api/playlist?playlistId=<ID_O_IDS>
- * Acepta un ID de playlist (por ejemplo "PLxxxxx") o varios separados con "~:-".
- */
-app.get('/api/playlist', async (req, res) => {
-  try {
-    let playlistId = req.query.playlistId; 
-    if (!playlistId) {
-      return res.status(400).json({ status: 400, message: "No playlistId provided." });
-    }
-
-    // Aceptar múltiples IDs separados por "~:-"
-    let listArr = playlistId.split("~:-").map(id => id.trim()).filter(id => id.length > 0);
-
-    let allVideos = [];
-    let combinedTitle = []; // para concatenar títulos
-
-    // Para cada ID, llamamos a la API de YouTube y paginamos
-    for (let singleId of listArr) {
-      let results = await getAllVideosFromYouTube(singleId);
-      if (results && results.items) {
-        allVideos = allVideos.concat(
-          results.items.map(v => ({
-            id: v.snippet.resourceId.videoId,
-            title: v.snippet.title,
-            thumbnail: v.snippet.thumbnails?.default?.url || "",
-          }))
-        );
-        combinedTitle.push(results.playlistTitle || singleId);
-      }
-    }
-
-    // Respuesta final
-    res.json({
-      status: 200,
-      title: combinedTitle.join(" + "),
-      response: allVideos,
-    });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ status: 500, message: "Server error" });
-  }
-});
-
-
-/**
- * Función para obtener TODOS los videos de una playlist (paginación de 50 en 50). PUEDE SOPORTAR MILES DE CANCIONES.
- * Devuelve { items, playlistTitle }
+ * Función para obtener TODOS los videos de una playlist (paginación de 50 en 50).
+ * Retorna un objeto { items, playlistTitle } con la lista de ítems y el título.
  */
 async function getAllVideosFromYouTube(playlistId) {
   let items = [];
@@ -88,10 +44,10 @@ async function getAllVideosFromYouTube(playlistId) {
     }
     const data = await resp.json();
 
-    // Obtener título genérico (opcional)
+    // Tomamos algún título genérico de la playlist (opcional)
     if (!playlistTitle && data.items && data.items[0]) {
-      playlistTitle = data.items[0].snippet.channelTitle; 
-      // O data.items[0].snippet.title si prefieres.
+      playlistTitle = data.items[0].snippet.channelTitle;
+      // O podrías usar: data.items[0].snippet.title, si prefieres.
     }
 
     items = items.concat(data.items);
@@ -101,12 +57,63 @@ async function getAllVideosFromYouTube(playlistId) {
   return { items, playlistTitle };
 }
 
+/**
+ * GET /api/playlist?playlistId=<ID_O_IDS>
+ * Acepta un ID de playlist (por ejemplo "PLxxxxx") o varios separados con "~:-".
+ */
+app.get('/api/playlist', async (req, res) => {
+  try {
+    const playlistId = req.query.playlistId;
+    if (!playlistId) {
+      return res.status(400).json({
+        status: 400,
+        message: "No playlistId provided."
+      });
+    }
 
+    // Aceptamos múltiples IDs separados por "~:-"
+    const listArr = playlistId
+      .split("~:-")
+      .map(id => id.trim())
+      .filter(id => id.length > 0);
+
+    let allVideos = [];
+    let combinedTitle = [];
+
+    // Para cada ID, llamamos a la API de YouTube y paginamos
+    for (let singleId of listArr) {
+      const results = await getAllVideosFromYouTube(singleId);
+      if (results && results.items) {
+        // Convertimos cada item en { id, title, thumbnail }
+        allVideos = allVideos.concat(
+          results.items.map(v => ({
+            id: v.snippet.resourceId.videoId,
+            title: v.snippet.title,
+            thumbnail: v.snippet.thumbnails?.default?.url || ""
+          }))
+        );
+        combinedTitle.push(results.playlistTitle || singleId);
+      }
+    }
+
+    // Respuesta final con status 200 y la lista de videos
+    res.json({
+      status: 200,
+      title: combinedTitle.join(" + "),
+      response: allVideos
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      status: 500,
+      message: "Server error"
+    });
+  }
+});
+
+// Ponemos app.listen al final
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en http://localhost:${PORT}`);
   console.log("Pulsa CTRL+C para detener.");
 });
-
-const cors = require('cors');
-app.use(cors());
-
