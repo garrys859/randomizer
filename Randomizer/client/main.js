@@ -92,9 +92,10 @@ document.addEventListener("DOMContentLoaded", () => {
 /**
  * Llama al servidor /api/playlist?playlistId=...
  */
+const baseURL = "https://randomizer-cg53.onrender.com";
 async function loadPlaylist(pid) {
   try {
-    const url = `/api/playlist?playlistId=${encodeURIComponent(pid)}`;
+    const url = `${baseURL}/api/playlist?playlistId=${encodeURIComponent(pid)}`;
     const resp = await fetch(url);
     if (!resp.ok) {
       alert("Error al contactar con el servidor");

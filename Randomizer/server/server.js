@@ -72,7 +72,7 @@ app.get('/api/playlist', async (req, res) => {
 
 
 /**
- * Función para obtener TODOS los videos de una playlist (paginación de 50 en 50).
+ * Función para obtener TODOS los videos de una playlist (paginación de 50 en 50). PUEDE SOPORTAR MILES DE CANCIONES.
  * Devuelve { items, playlistTitle }
  */
 async function getAllVideosFromYouTube(playlistId) {
