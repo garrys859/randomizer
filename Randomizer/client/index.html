@@ -12,16 +12,16 @@
   <div class="container">
     <h1>Mi Randomizador de Playlists de YouTube</h1>
 
-    <label for="playlistId">Playlist ID o IDs (usa ~:- para múltiples):</label><br>
+    <label for="playlistId">Playlist ID</label><br>
     <input 
       type="text" 
       id="playlistId" 
       size="50" 
       placeholder="Ej: PLxxxxx o PL1234~:-PL5678"
     >
+    <textarea id="playlistId" rows="1" placeholder="Introduce una playlist o una URL"></textarea>
     <button id="loadBtn">Cargar Playlist</button>
-    <button id="resumeBtn" class="hidden">Retomar Sesión Anterior</button>
-
+    <button id="resumeBtn" class="hidden">Retomar Sesión Anterior</button>    
     <br><br>
     <div id="playerArea" class="player-area hidden">
       <div id="iframe-container"></div>
