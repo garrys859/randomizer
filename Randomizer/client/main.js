@@ -7,36 +7,46 @@
  *  - Búsqueda local con Elasticlunr (En construccion)
  */
 
-const KEY_PLAYLIST = "myrnd-playlist"; // para JSON comprimido
-const KEY_IDX      = "myrnd-idx";      // índice actual
+// Claves para localStorage
+const KEY_PLAYLIST = "myrnd-playlist"; // Para JSON comprimido
+const KEY_IDX      = "myrnd-idx";      // Índice actual
 const KEY_PID      = "myrnd-pid";      // IDs guardados
 
 let videos = [];
 let currentIndex = 0;
-let player = null; // Instancia de la IFrame Player (evitar video no disponible en youtube)
+let player = null; // Instancia de la IFrame Player (para evitar video no disponible en youtube)
 
+// URL de tu back-end en Render (o donde esté tu servidor Node)
+const baseURL = "https://randomizer-cg53.onrender.com";
+
+/**
+ * Cuando se cargue el DOM, configuramos eventos
+ */
 document.addEventListener("DOMContentLoaded", () => {
   const loadBtn = document.getElementById("loadBtn");
   const resumeBtn = document.getElementById("resumeBtn");
 
-
+  // Si en localStorage hay sesión previa (videos + índice + pid), mostramos el botón para retomarla
   if (localStorage.getItem(KEY_PLAYLIST) && localStorage.getItem(KEY_IDX) && localStorage.getItem(KEY_PID)) {
     resumeBtn.classList.remove("hidden");
   }
 
+  // Al pulsar "Cargar Playlist"
   loadBtn.addEventListener("click", () => {
-    const pid = document.getElementById("playlistId").value.trim();
-    if (!pid) {
-      alert("Ingresa un ID de playlist.");
+    const pidInput = document.getElementById("playlistId").value.trim();
+    if (!pidInput) {
+      alert("Ingresa un ID de playlist o una URL válida de YouTube.");
       return;
     }
-    loadPlaylist(pid);
+    loadPlaylist(pidInput);
   });
 
+  // Al pulsar "Retomar Sesión Anterior"
   resumeBtn.addEventListener("click", () => {
     resumeSession();
   });
 
+  // Botones de anterior/siguiente en el reproductor
   document.getElementById("prevBtn").addEventListener("click", () => {
     playVideoAtIndex(currentIndex - 1);
   });
@@ -44,30 +54,31 @@ document.addEventListener("DOMContentLoaded", () => {
     playVideoAtIndex(currentIndex + 1);
   });
 
-  // Cuando el usuario elige algo en la lista textual
+  // Evento al cambiar manualmente en la lista de videos
   document.getElementById("playlistView").addEventListener("change", (e) => {
     const idx = parseInt(e.target.value, 10);
     playVideoAtIndex(idx);
   });
 
-  // Configurar búsqueda local (construccion)
+  // Búsqueda local (en construcción)
   const searchInput = document.getElementById("searchInput");
   const searchResults = document.getElementById("searchResults");
 
+  // Cada vez que tecleamos en la búsqueda
   searchInput.addEventListener("keyup", () => {
     const query = searchInput.value.trim();
     if (query.length < 3) {
       searchResults.classList.add("hidden");
       return;
     }
-    // Filtrar usando elasticlunr (construccion)
+    // Filtrar usando elasticlunr
     const results = idxSearch(query);
     searchResults.innerHTML = "";
 
     results.forEach(r => {
       // r.ref es el índice en 'videos'
       const opt = document.createElement("option");
-      opt.value = r.ref; 
+      opt.value = r.ref;
       opt.textContent = r.ref + " - " + videos[r.ref].title;
       searchResults.appendChild(opt);
     });
@@ -80,7 +91,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Al hacer clic en un resultado
+  // Al hacer clic en un resultado de búsqueda
   searchResults.addEventListener("click", () => {
     const val = parseInt(searchResults.value, 10);
     if (!isNaN(val)) {
@@ -90,12 +101,34 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 /**
- * Llama al servidor /api/playlist?playlistId=...
+ * 1) Función para extraer el playlistId de una URL o devolver la cadena si ya es un ID
  */
-const baseURL = "https://randomizer-cg53.onrender.com";
-async function loadPlaylist(pid) {
+function getPlaylistIdFromUrl(urlOrId) {
   try {
-    const url = `${baseURL}/api/playlist?playlistId=${encodeURIComponent(pid)}`;
+    // Si NO contiene "youtube.com", asumimos que es directamente un ID (p. ej. PLxxxxx)
+    if (!urlOrId.includes("youtube.com")) {
+      return urlOrId;
+    }
+    const url = new URL(urlOrId);
+    // Tomamos el valor del parámetro "list"
+    return url.searchParams.get("list");
+  } catch (error) {
+    // Si falla, devolvemos la misma cadena por si era un ID
+    return urlOrId;
+  }
+}
+
+/**
+ * 2) Llama al servidor /api/playlist?playlistId=...
+ * Soporta URL completa o solo ID
+ */
+async function loadPlaylist(pidInput) {
+  try {
+    // Extraemos el ID real de la playlist
+    const playlistId = getPlaylistIdFromUrl(pidInput);
+
+    // Construimos la URL de la petición al back-end
+    const url = `${baseURL}/api/playlist?playlistId=${encodeURIComponent(playlistId)}`;
     const resp = await fetch(url);
     if (!resp.ok) {
       alert("Error al contactar con el servidor");
@@ -108,14 +141,14 @@ async function loadPlaylist(pid) {
     }
 
     videos = data.response;
-    // Randomizar (Fisher-Yates):
+    // Mezclar (Fisher-Yates):
     shuffleArray(videos);
 
     currentIndex = 0;
-    // Guardar en localStorage
-    saveSession(pid);
+    // Guardar en localStorage (puedes guardar 'playlistId' o 'pidInput')
+    saveSession(pidInput);
 
-    // Mostrar el área de reproducción
+    // Mostrar el área de reproducción y rellenar la lista
     document.getElementById("playerArea").classList.remove("hidden");
     fillPlaylistView();
     createPlayerIfNeeded();
@@ -128,7 +161,7 @@ async function loadPlaylist(pid) {
 }
 
 /**
- * Rellena el <select> con la lista de videos randomizados
+ * 3) Rellena el <select> con la lista de videos randomizados
  */
 function fillPlaylistView() {
   const sel = document.getElementById("playlistView");
@@ -143,7 +176,7 @@ function fillPlaylistView() {
 }
 
 /**
- * Guarda la sesión en localStorage
+ * 4) Guardar la sesión en localStorage (videos + índice + "pid")
  */
 function saveSession(pid) {
   // Comprimir con LZString
@@ -154,13 +187,14 @@ function saveSession(pid) {
 }
 
 /**
- * Retoma lo que hay en localStorage
+ * 5) Retomar la sesión previa en localStorage
  */
 function resumeSession() {
   const comp = localStorage.getItem(KEY_PLAYLIST);
   videos = JSON.parse(LZString.decompressFromUTF16(comp));
   currentIndex = parseInt(localStorage.getItem(KEY_IDX), 10) || 0;
 
+  // Mostramos el reproductor y la lista
   document.getElementById("playerArea").classList.remove("hidden");
   fillPlaylistView();
   createPlayerIfNeeded();
@@ -168,7 +202,7 @@ function resumeSession() {
 }
 
 /**
- * Crea el iframe de YouTube si no existe todavía
+ * 6) Crear el iframe de YouTube si no existe todavía
  */
 function createPlayerIfNeeded() {
   if (window.YT && window.YT.Player) {
@@ -177,15 +211,20 @@ function createPlayerIfNeeded() {
     }
   } else {
     // Cargar la librería de la IFrame Player API
-    const tag = document.createElement('script');
+    const tag = document.createElement("script");
     tag.src = "https://www.youtube.com/iframe_api";
     document.body.appendChild(tag);
+
+    // Cuando la API se cargue, llamará a onYouTubeIframeAPIReady()
     window.onYouTubeIframeAPIReady = () => {
       createIframePlayer();
     };
   }
 }
 
+/**
+ * 7) Crear el reproductor embebido
+ */
 function createIframePlayer() {
   player = new YT.Player("iframe-container", {
     width: "640",
@@ -201,13 +240,13 @@ function createIframePlayer() {
         event.target.playVideo();
       },
       onError: (event) => {
-        // Cuando falla, saltamos al siguiente
+        // Cuando falla un video, saltamos al siguiente
         setTimeout(() => {
           playVideoAtIndex(currentIndex + 1);
         }, 2000);
       },
       onStateChange: (event) => {
-        // Si termina, pasar al siguiente
+        // Si termina, pasamos al siguiente
         if (event.data === YT.PlayerState.ENDED) {
           playVideoAtIndex(currentIndex + 1);
         }
@@ -217,12 +256,12 @@ function createIframePlayer() {
 }
 
 /**
- * Reproduce el video en el índice idx (con comportamiento "circular")
+ * 8) Reproduce el video en la posición idx (con comportamiento "circular")
  */
 function playVideoAtIndex(idx) {
   if (!videos || videos.length === 0) return;
 
-  // Circular
+  // Comportamiento circular: si sale de rango, volvemos al inicio o al final
   if (idx < 0) idx = videos.length - 1;
   if (idx >= videos.length) idx = 0;
 
@@ -238,7 +277,7 @@ function playVideoAtIndex(idx) {
 }
 
 /**
- * Fisher-Yates shuffle para mezclar la lista
+ * 9) Algoritmo de Fisher-Yates para mezclar la lista
  */
 function shuffleArray(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -248,13 +287,13 @@ function shuffleArray(arr) {
 }
 
 /**
- * Búsqueda local con elasticlunr (construccion)
+ * 10) Búsqueda local con elasticlunr (en construcción)
  */
 let elasticIndex = null;
 function buildIndexIfNeeded() {
   if (!elasticIndex) {
     elasticIndex = elasticlunr(function() {
-      this.setRef("idx"); 
+      this.setRef("idx");
       this.addField("title");
     });
     videos.forEach((v, i) => {
@@ -267,6 +306,5 @@ function idxSearch(query) {
   buildIndexIfNeeded();
   // bool: "AND", expand: true => busca palabras parciales
   const results = elasticIndex.search(query, { bool: "AND", expand: true });
-  // Devuelve array de { ref: 'X', score: #, doc: {...} }
-  return results;
+  return results; // { ref: 'X', score: #, doc: {...} }
 }
