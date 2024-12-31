@@ -1,39 +1,33 @@
-/**
- * main.js
- * Lógica:
- *  - Cargar una (o varias) playlists, pedirla(s) a /api/playlist
- *  - Almacenar resultados en localStorage (comprimidos con LZString)
- *  - Manejo de IFrame Player API para reproducir, onError => pasar al siguiente.
- *  - Búsqueda local con Elasticlunr (En construccion)
- */
-
 // Claves para localStorage
 const KEY_PLAYLIST = "myrnd-playlist"; // Para JSON comprimido
 const KEY_IDX      = "myrnd-idx";      // Índice actual
 const KEY_PID      = "myrnd-pid";      // IDs guardados
+const KEY_SAVED    = "myrnd-saved";   // Canciones guardadas
 
 let videos = [];
+let savedSongs = JSON.parse(localStorage.getItem(KEY_SAVED)) || [];
 let currentIndex = 0;
 let player = null; // Instancia de la IFrame Player (para evitar video no disponible en youtube)
 
 // URL de tu back-end en Render (o donde esté tu servidor Node)
 const baseURL = "https://randomizer-cg53.onrender.com";
 
-/**
- * Cuando se cargue el DOM, configuramos eventos
- */
 document.addEventListener("DOMContentLoaded", () => {
+  console.log("DOM completamente cargado.");
+
   const loadBtn = document.getElementById("loadBtn");
   const resumeBtn = document.getElementById("resumeBtn");
+  const searchInput = document.getElementById("searchInput");
+  const searchResults = document.getElementById("searchResults");
 
-  // Si en localStorage hay sesión previa (videos + índice + pid), mostramos el botón para retomarla
   if (localStorage.getItem(KEY_PLAYLIST) && localStorage.getItem(KEY_IDX) && localStorage.getItem(KEY_PID)) {
+    console.log("Sesión previa detectada en localStorage.");
     resumeBtn.classList.remove("hidden");
   }
 
-  // Al pulsar "Cargar Playlist"
   loadBtn.addEventListener("click", () => {
     const pidInput = document.getElementById("playlistId").value.trim();
+    console.log("Cargar Playlist presionado. ID/URL introducido:", pidInput);
     if (!pidInput) {
       alert("Ingresa un ID de playlist o una URL válida de YouTube.");
       return;
@@ -41,195 +35,233 @@ document.addEventListener("DOMContentLoaded", () => {
     loadPlaylist(pidInput);
   });
 
-  // Al pulsar "Retomar Sesión Anterior"
   resumeBtn.addEventListener("click", () => {
+    console.log("Retomar sesión anterior.");
     resumeSession();
   });
 
-  // Botones de anterior/siguiente en el reproductor
   document.getElementById("prevBtn").addEventListener("click", () => {
+    console.log("Reproducir video anterior.");
     playVideoAtIndex(currentIndex - 1);
   });
+
   document.getElementById("nextBtn").addEventListener("click", () => {
+    console.log("Reproducir video siguiente.");
     playVideoAtIndex(currentIndex + 1);
   });
 
-  // Evento al cambiar manualmente en la lista de videos
-  document.getElementById("playlistView").addEventListener("change", (e) => {
-    const idx = parseInt(e.target.value, 10);
-    playVideoAtIndex(idx);
-  });
-
-  // Búsqueda local (en construcción)
-  const searchInput = document.getElementById("searchInput");
-  const searchResults = document.getElementById("searchResults");
-
-  // Cada vez que tecleamos en la búsqueda
-  searchInput.addEventListener("keyup", () => {
+  searchInput.addEventListener("input", () => {
     const query = searchInput.value.trim();
-    if (query.length < 3) {
-      searchResults.classList.add("hidden");
-      return;
-    }
-    // Filtrar usando elasticlunr
-    const results = idxSearch(query);
+    console.log("Entrada en barra de búsqueda:", query);
     searchResults.innerHTML = "";
 
-    results.forEach(r => {
-      // r.ref es el índice en 'videos'
-      const opt = document.createElement("option");
-      opt.value = r.ref;
-      opt.textContent = r.ref + " - " + videos[r.ref].title;
-      searchResults.appendChild(opt);
-    });
-
-    if (results.length > 0) {
-      searchResults.size = Math.min(results.length, 8);
-      searchResults.classList.remove("hidden");
-    } else {
-      searchResults.classList.add("hidden");
+    if (query.length === 0) {
+        console.log("No se ingresó término de búsqueda. Ocultando resultados.");
+        searchResults.classList.add("hidden");
+        return;
     }
+
+    const results = idxSearch(query);
+    console.log("Resultados de búsqueda:", results);
+    const filteredVideos = results.map(r => videos[parseInt(r.ref, 10)]);
+    fillSearchResults(filteredVideos);
   });
 
-  // Al hacer clic en un resultado de búsqueda
-  searchResults.addEventListener("click", () => {
-    const val = parseInt(searchResults.value, 10);
-    if (!isNaN(val)) {
-      playVideoAtIndex(val);
-    }
-  });
+  renderSavedSongs();
 });
 
-/**
- * 1) Función para extraer el playlistId de una URL o devolver la cadena si ya es un ID
- */
 function getPlaylistIdFromUrl(urlOrId) {
   try {
-    // Si NO contiene "youtube.com", asumimos que es directamente un ID (p. ej. PLxxxxx)
     if (!urlOrId.includes("youtube.com")) {
       return urlOrId;
     }
     const url = new URL(urlOrId);
-    // Tomamos el valor del parámetro "list"
     return url.searchParams.get("list");
   } catch (error) {
-    // Si falla, devolvemos la misma cadena por si era un ID
+    console.error("Error al extraer el ID de la playlist:", error);
     return urlOrId;
   }
 }
 
-/**
- * 2) Llama al servidor /api/playlist?playlistId=...
- * Soporta URL completa o solo ID
- */
 async function loadPlaylist(pidInput) {
   try {
-    // Extraemos el ID real de la playlist
     const playlistId = getPlaylistIdFromUrl(pidInput);
+    console.log("Playlist ID extraído:", playlistId);
 
-    // Construimos la URL de la petición al back-end
     const url = `${baseURL}/api/playlist?playlistId=${encodeURIComponent(playlistId)}`;
+    console.log("URL para cargar la playlist:", url);
+
     const resp = await fetch(url);
     if (!resp.ok) {
+      console.error("Error al contactar con el servidor:", resp.status);
       alert("Error al contactar con el servidor");
       return;
     }
+
     const data = await resp.json();
+    console.log("Datos recibidos del servidor:", data);
+
     if (data.status !== 200) {
+      console.error("Error en la respuesta del servidor:", data);
       alert("No se pudo cargar la playlist");
       return;
     }
 
     videos = data.response;
-    // Mezclar (Fisher-Yates):
+    console.log("Videos cargados:", videos);
+
     shuffleArray(videos);
 
     currentIndex = 0;
-    // Guardar en localStorage (puedes guardar 'playlistId' o 'pidInput')
     saveSession(pidInput);
 
-    // Mostrar el área de reproducción y rellenar la lista
     document.getElementById("playerArea").classList.remove("hidden");
-    fillPlaylistView();
-    createPlayerIfNeeded();
-    playVideoAtIndex(currentIndex);
+    renderPlaylistView();
+    buildIndexIfNeeded(true);
+
+    if (!player) {
+      console.log("Inicializando reproductor de YouTube.");
+      createPlayerIfNeeded(() => {
+        console.log("Reproductor inicializado, reproduciendo video inicial.");
+        playVideoAtIndex(currentIndex);
+      });
+    } else {
+      playVideoAtIndex(currentIndex);
+    }
 
   } catch (err) {
-    console.error(err);
+    console.error("Error al cargar la playlist:", err);
     alert("Ocurrió un error al obtener la playlist");
   }
 }
 
-/**
- * 3) Rellena el <select> con la lista de videos randomizados
- */
-function fillPlaylistView() {
-  const sel = document.getElementById("playlistView");
-  sel.innerHTML = "";
-  videos.forEach((vid, idx) => {
-    const opt = document.createElement("option");
-    opt.value = idx;
-    opt.textContent = `(${idx}) ${vid.title}`;
-    sel.appendChild(opt);
+function fillSearchResults(results) {
+  const searchResults = document.getElementById("searchResults");
+  searchResults.innerHTML = "";
+
+  if (results.length === 0) {
+    searchResults.classList.add("hidden");
+    return;
+  }
+
+  results.forEach((video, index) => {
+    const li = document.createElement("li");
+    li.className = "search-item";
+    li.dataset.index = videos.indexOf(video);
+    li.textContent = video.title;
+
+    li.addEventListener("click", () => {
+      playVideoAtIndex(parseInt(li.dataset.index, 10));
+    });
+
+    searchResults.appendChild(li);
   });
-  sel.classList.remove("hidden");
+
+  searchResults.classList.remove("hidden");
 }
 
-/**
- * 4) Guardar la sesión en localStorage (videos + índice + "pid")
- */
+function renderPlaylistView() {
+  const container = document.getElementById("playlistView");
+  container.innerHTML = "";
+
+  videos.forEach((video, index) => {
+    const li = document.createElement("li");
+    li.className = `playlist-item ${index === currentIndex ? 'current' : ''}`;
+    li.dataset.index = index;
+    li.innerHTML = `<span style="display: inline-block; width: 5%;">${index + 1}</span><span class="note-icon" style="display: inline-block; width: 5%;">❤</span> <span style="text-align: left; display: inline-block; width: 70%;">${video.title}</span> <span style="display: inline-flex; justify-content: flex-end; width: 20%; gap: 10px;"><span class="favorite-icon">${savedSongs.includes(video.id) ? "★" : "☆"}</span><a href="https://www.youtube.com/watch?v=${video.id}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" style="text-decoration: none;">🔗</a></span>`;
+
+    const favIcon = li.querySelector(".favorite-icon");
+    favIcon.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleSaveSong(video);
+      favIcon.textContent = savedSongs.includes(video.id) ? "★" : "☆";
+    });
+
+    li.addEventListener("click", () => {
+      playVideoAtIndex(index);
+    });
+
+    container.appendChild(li);
+  });
+}
+
+function renderSavedSongs() {
+  const savedSongsList = document.getElementById("savedSongsList");
+  savedSongsList.innerHTML = "";
+  savedSongs.forEach(songId => {
+    const song = videos.find(v => v.id === songId);
+    if (song) {
+      const li = document.createElement("li");
+      li.innerHTML = `<a href="https://www.youtube.com/watch?v=${song.id}" target="_blank" rel="noopener noreferrer">${song.title}</a>`;
+      savedSongsList.appendChild(li);
+    }
+  });
+}
+
+function toggleSaveSong(song) {
+  if (savedSongs.includes(song.id)) {
+    savedSongs = savedSongs.filter(id => id !== song.id);
+  } else {
+    savedSongs.push(song.id);
+  }
+  localStorage.setItem(KEY_SAVED, JSON.stringify(savedSongs));
+  renderSavedSongs();
+}
+
 function saveSession(pid) {
-  // Comprimir con LZString
+  console.log("Guardando sesión en localStorage.");
   const comp = LZString.compressToUTF16(JSON.stringify(videos));
   localStorage.setItem(KEY_PLAYLIST, comp);
   localStorage.setItem(KEY_IDX, currentIndex.toString());
   localStorage.setItem(KEY_PID, pid);
 }
 
-/**
- * 5) Retomar la sesión previa en localStorage
- */
 function resumeSession() {
+  console.log("Retomando sesión desde localStorage.");
   const comp = localStorage.getItem(KEY_PLAYLIST);
   videos = JSON.parse(LZString.decompressFromUTF16(comp));
+  console.log("Videos restaurados:", videos);
   currentIndex = parseInt(localStorage.getItem(KEY_IDX), 10) || 0;
 
-  // Mostramos el reproductor y la lista
   document.getElementById("playerArea").classList.remove("hidden");
-  fillPlaylistView();
-  createPlayerIfNeeded();
-  playVideoAtIndex(currentIndex);
+  renderPlaylistView();
+  buildIndexIfNeeded();
+
+  if (!player) {
+    console.log("Inicializando reproductor de YouTube.");
+    createPlayerIfNeeded(() => {
+      console.log("Reproductor inicializado, retomando video en índice:", currentIndex);
+      playVideoAtIndex(currentIndex);
+    });
+  } else {
+    playVideoAtIndex(currentIndex);
+  }
 }
 
-/**
- * 6) Crear el iframe de YouTube si no existe todavía
- */
-function createPlayerIfNeeded() {
+function createPlayerIfNeeded(callback) {
   if (window.YT && window.YT.Player) {
     if (!player) {
-      createIframePlayer();
+      createIframePlayer(callback);
+    } else if (callback) {
+      callback();
     }
   } else {
-    // Cargar la librería de la IFrame Player API
     const tag = document.createElement("script");
     tag.src = "https://www.youtube.com/iframe_api";
     document.body.appendChild(tag);
 
-    // Cuando la API se cargue, llamará a onYouTubeIframeAPIReady()
     window.onYouTubeIframeAPIReady = () => {
-      createIframePlayer();
+      createIframePlayer(callback);
     };
   }
 }
 
-/**
- * 7) Crear el reproductor embebido
- */
-function createIframePlayer() {
+function createIframePlayer(callback) {
+  console.log("Creando reproductor de YouTube.");
   player = new YT.Player("iframe-container", {
     width: "640",
     height: "360",
-    videoId: (videos[0]?.id) || "dQw4w9WgXcQ", 
+    videoId: (videos[0]?.id) || "dQw4w9WgXcQ",
     playerVars: {
       autoplay: 1,
       controls: 1,
@@ -237,17 +269,20 @@ function createIframePlayer() {
     },
     events: {
       onReady: (event) => {
+        console.log("Reproductor listo, reproduciendo video inicial.");
         event.target.playVideo();
+        updateTitleAndProgress();
+        if (callback) callback();
       },
       onError: (event) => {
-        // Cuando falla un video, saltamos al siguiente
+        console.error("Error en el reproductor de YouTube, saltando al siguiente video:", event);
         setTimeout(() => {
           playVideoAtIndex(currentIndex + 1);
         }, 2000);
       },
       onStateChange: (event) => {
-        // Si termina, pasamos al siguiente
         if (event.data === YT.PlayerState.ENDED) {
+          console.log("Video terminado, reproduciendo el siguiente.");
           playVideoAtIndex(currentIndex + 1);
         }
       }
@@ -255,43 +290,47 @@ function createIframePlayer() {
   });
 }
 
-/**
- * 8) Reproduce el video en la posición idx (con comportamiento "circular")
- */
 function playVideoAtIndex(idx) {
-  if (!videos || videos.length === 0) return;
+    if (!videos || videos.length === 0) return;
 
-  // Comportamiento circular: si sale de rango, volvemos al inicio o al final
-  if (idx < 0) idx = videos.length - 1;
-  if (idx >= videos.length) idx = 0;
+    console.log("Reproduciendo video en índice:", idx);
 
-  currentIndex = idx;
-  document.getElementById("playlistView").value = idx;
+    if (idx < 0) idx = videos.length - 1;
+    if (idx >= videos.length) idx = 0;
 
-  if (player && player.loadVideoById) {
-    const videoId = videos[idx].id;
-    player.loadVideoById(videoId);
-  }
+    currentIndex = idx;
 
-  localStorage.setItem(KEY_IDX, currentIndex.toString());
+    const video = videos[idx];
+    if (video && player) { // Comprueba si el video y el reproductor existen
+        const videoId = video.id;
+        console.log("Cargando video en el reproductor:", videoId);
+        player.loadVideoById(videoId);
+        updateTitleAndProgress();
+    } else {
+        console.error("Video no encontrado o reproductor no inicializado.");
+         if (!player) {
+             createPlayerIfNeeded(() => {
+                 playVideoAtIndex(currentIndex);
+             })
+         }
+    }
+
+    localStorage.setItem(KEY_IDX, currentIndex.toString());
+    renderPlaylistView();
 }
 
-/**
- * 9) Algoritmo de Fisher-Yates para mezclar la lista
- */
 function shuffleArray(arr) {
+  console.log("Mezclando videos.");
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
 }
 
-/**
- * 10) Búsqueda local con elasticlunr (en construcción)
- */
 let elasticIndex = null;
-function buildIndexIfNeeded() {
-  if (!elasticIndex) {
+function buildIndexIfNeeded(forceRebuild = false) {
+  if (!elasticIndex || forceRebuild) {
+    console.log("Construyendo índice de búsqueda.");
     elasticIndex = elasticlunr(function() {
       this.setRef("idx");
       this.addField("title");
@@ -303,8 +342,30 @@ function buildIndexIfNeeded() {
 }
 
 function idxSearch(query) {
+  console.log("Realizando búsqueda con término:", query);
   buildIndexIfNeeded();
-  // bool: "AND", expand: true => busca palabras parciales
   const results = elasticIndex.search(query, { bool: "AND", expand: true });
-  return results; // { ref: 'X', score: #, doc: {...} }
+  console.log("Resultados encontrados:", results);
+  return results;
+}
+
+function updateTitleAndProgress() {
+  if (!player || !videos[currentIndex]) return;
+
+  const videoTitle = videos[currentIndex].title || "Título no disponible";
+  const totalVideos = videos.length;
+  const currentVideoNumber = currentIndex + 1;
+
+  // Limpia cualquier intervalo previo
+  if (window.titleUpdateInterval) clearInterval(window.titleUpdateInterval);
+
+  window.titleUpdateInterval = setInterval(() => {
+    if (player.getPlayerState() === YT.PlayerState.PLAYING) {
+      const currentTime = player.getCurrentTime() || 0;
+      const duration = player.getDuration() || 1; // Evita división por cero
+      const progress = ((currentTime / duration) * 100).toFixed(2);
+
+      document.title = `Song Progress: ${progress}% of "${videoTitle}" ~ (${currentVideoNumber}/${totalVideos}) of playlist.`;
+    }
+  }, 1000);
 }

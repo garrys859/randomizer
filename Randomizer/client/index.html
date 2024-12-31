@@ -6,42 +6,48 @@
   <link rel="stylesheet" href="styles.css" />
   <!-- LZString y Elasticlunr (minificados) -->
   <script src="lz-string.min.js"></script>
-  <script src="elasticlunr.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/elasticlunr/elasticlunr.js"></script>
+  <script src="main.js"></script>
 </head>
 <body>
   <div class="container">
-    <h1>Mi Randomizador de Playlists de YouTube</h1>
+    <h1>Randomizador de playlist de YouTube</h1>
 
-    <label for="playlistId">Playlist ID</label><br>
-    <input 
-      type="text" 
-      id="playlistId" 
-      size="50" 
-      placeholder="Ej: PLxxxxx o PL1234~:-PL5678"
-    >
-    <textarea id="playlistId" rows="1" placeholder="Introduce una playlist o una URL"></textarea>
+    <label for="playlistId">Agrega el ID de la playlist o bien la URL:</label><br>
+    <input type="text" id="playlistId" size="50" placeholder="Introduce aquí tu URL o ID">
+    <p>El ID se encuentra en la URL justo después de "list="</p>
+    <p>Si quieres agregar múltiples listas, usa ~:- ejemplo: PL1234~:-PL5678 (solo con IDs).</p>
     <button id="loadBtn">Cargar Playlist</button>
-    <button id="resumeBtn" class="hidden">Retomar Sesión Anterior</button>    
+    <button id="resumeBtn" class="hidden">Retomar Sesión Anterior</button>
+
     <br><br>
+
     <div id="playerArea" class="player-area hidden">
       <div id="iframe-container"></div>
       <div class="controls">
         <button id="prevBtn">Anterior</button>
         <button id="nextBtn">Siguiente</button>
       </div>
+
       <br>
       <div>
         <strong>Búsqueda local:</strong>
         <input type="search" id="searchInput" placeholder="Mínimo 3 caracteres">
-        <select id="searchResults" size="8" class="hidden"></select>
+        <div id="searchResultsContainer">
+          <ul id="searchResults" class="search-results"></ul>
+        </div>
       </div>
+
       <br>
-      <div>
-        <select id="playlistView" size="10" class="hidden"></select>
+      <div id="playlistContainer">
+        <ul id="playlistView" class="playlist-view"></ul>
       </div>
     </div>
-  </div>
 
-  <script src="main.js"></script>
+    <div id="savedSongsArea">
+      <h3>Canciones Guardadas</h3>
+      <ul id="savedSongsList"></ul>
+    </div>
+  </div>
 </body>
 </html>
