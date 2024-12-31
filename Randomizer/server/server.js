@@ -106,3 +106,7 @@ app.listen(PORT, () => {
   console.log(`Servidor escuchando en http://localhost:${PORT}`);
   console.log("Pulsa CTRL+C para detener.");
 });
+
+const cors = require('cors');
+app.use(cors());
+
