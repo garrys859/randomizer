@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Mi Randomizador</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- LZString y Elasticlunr (minificados) -->
+  <script src="lz-string.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/elasticlunr/elasticlunr.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>Randomizador de playlist de YouTube</h1>
+
+    <label for="playlistId">Agrega el ID de la playlist o bien la URL:</label><br>
+    <input type="text" id="playlistId" size="50" placeholder="Introduce aquí tu URL o ID">
+    <p>El ID se encuentra en la URL justo después de "list="</p>
+    <p>Si quieres agregar múltiples listas, usa ~:- ejemplo: PL1234~:-PL5678 (solo con IDs).</p>
+    <button id="loadBtn">Cargar Playlist</button>
+    <button id="resumeBtn" class="hidden">Retomar Sesión Anterior</button>
+    <br><br>
+
+    <div id="playerArea" class="player-area hidden">
+      <div id="iframe-container"></div>
+      <div class="controls">
+        <button id="prevBtn">Anterior</button>
+        <button id="nextBtn">Siguiente</button>
+      </div>
+
+      <br>
+      <div>
+        <strong>Búsqueda local:</strong>
+        <input type="search" id="searchInput" placeholder="Mínimo 3 caracteres">
+        <div id="searchResultsContainer">
+          <ul id="searchResults" class="search-results"></ul>
+        </div>
+      </div>
+
+      <br>
+      <div id="playlistContainer">
+        <ul id="playlistView" class="playlist-view"></ul>
+      </div>
+    </div>
+
+    <div id="savedSongsArea">
+      <h3>Canciones Guardadas</h3>
+      <ul id="savedSongsList"></ul>
+    </div>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>
