@@ -12,7 +12,7 @@ require('dotenv').config();        // Carga variables de entorno (YT_API_KEY)
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
-const { Client, Intents } = require('discord.js');
+const { Client, GatewayIntentBits } = require('discord.js');
 const { joinVoiceChannel, createAudioPlayer, createAudioResource } = require('@discordjs/voice');
 const ytdl = require('ytdl-core');
 
@@ -179,7 +179,14 @@ app.post('/api/randomize', (req, res) => {
 /**
  * Bot de Discord
  */
-const botClient = new Client({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_VOICE_STATES, Intents.FLAGS.GUILD_MESSAGES] });
+const botClient = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
+});
 
 botClient.once('ready', () => {
   console.log(`Bot de Discord iniciado como ${botClient.user.tag}`);
