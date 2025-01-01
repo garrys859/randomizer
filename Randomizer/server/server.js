@@ -140,7 +140,8 @@ app.get('/api/playlist', async (req, res) => {
  */
 app.post('/api/playlist', (req, res) => {
   const { token, playlist } = req.body;
-
+  console.log("Token recibido:", token);
+  console.log("Playlist recibida:", playlist);
   if (!token || !playlist) {
     return res.status(400).json({
       status: 400,
