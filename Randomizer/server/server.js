@@ -137,29 +137,33 @@ botClient.on('messageCreate', async (message) => {
       const playNext = async () => {
         if (currentIndex >= playlist.length) {
           message.channel.send("Lista de reproducción terminada.");
-          connection.destroy();
+          if (getVoiceConnection(message.guild.id)) {
+            getVoiceConnection(message.guild.id).destroy();
+          }
           currentIndex = 0; // Reinicia el índice
           return;
         }
 
+        const video = playlist[currentIndex];
+        const videoUrl = `https://www.youtube.com/watch?v=${video.id}`;
+
         try {
-          const videoUrl = `https://www.youtube.com/watch?v=${playlist[currentIndex].id}`;
-          const stream = ytdl(videoUrl, { filter: 'audioonly' }); // Manejo del stream
+          const stream = ytdl(videoUrl, { filter: 'audioonly' });
           const resource = createAudioResource(stream);
 
           player.play(resource);
           player.once('error', (error) => {
-            console.error(`Error al reproducir el video: ${playlist[currentIndex].title}`, error);
-            message.channel.send(`Error al reproducir: ${playlist[currentIndex].title}. Saltando al siguiente.`);
+            console.error(`Error al reproducir el video: ${video.title}`, error);
+            message.channel.send(`Error al reproducir: ${video.title}. Saltando al siguiente.`);
             currentIndex++;
             playNext(); // Reproduce el siguiente video
           });
 
-          message.channel.send(`Reproduciendo: ${playlist[currentIndex].title}`);
+          message.channel.send(`Reproduciendo: ${video.title}`);
           currentIndex++;
         } catch (error) {
-          console.error(`Error en el video ${playlist[currentIndex].title}:`, error);
-          message.channel.send(`No se pudo reproducir ${playlist[currentIndex].title}. Saltando al siguiente.`);
+          console.error(`Error en el video ${video.title}:`, error);
+          message.channel.send(`No se pudo reproducir ${video.title}. Saltando al siguiente.`);
           currentIndex++;
           playNext();
         }
@@ -210,7 +214,6 @@ botClient.on('messageCreate', async (message) => {
     }
   }
 });
-
 botClient.login(DISCORD_BOT_TOKEN);
 
 app.listen(PORT, () => {
