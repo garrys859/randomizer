@@ -78,10 +78,11 @@ app.get('/api/playlist', async (req, res) => {
   try {
     const playlistId = req.query.playlistId;
     const token = req.query.token;
-
+    console.log("GET /api/playlist - Token recibido:", token);
     // Si se proporciona un token, devolvemos la playlist asociada al token
     if (token) {
       if (!playlists[token]) {
+        console.error("GET /api/playlist - No se encontró playlist para el token:", token);
         return res.status(404).json({ status: 404, message: "Playlist no encontrada para el token proporcionado." });
       }
       return res.json(playlists[token]);
