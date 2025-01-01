@@ -70,66 +70,76 @@ connectToRabbitMQ().then(channel => {
 });
 
 app.get('/api/playlist', async (req, res) => {
-    try {
-        const token = uuidv4();
-        const playlistId = req.query.playlistId;
-        console.log("1. Playlist ID recibido:", playlistId);
+  try {
+      const token = uuidv4();
+      const playlistId = req.query.playlistId;
+      console.log("[SERVER] 1. Playlist ID recibido:", playlistId);
+      console.log("[SERVER] Token generado:", token);
 
-        if (!playlistId) {
-            return res.status(400).json({ status: 400, message: "No playlistId provided." });
-        }
+      if (!playlistId) {
+          return res.status(400).json({ status: 400, message: "No playlistId provided." });
+      }
 
-        const listArr = playlistId
-            .split("~:-")
-            .map(id => id.trim())
-            .filter(id => id.length > 0);
+      const listArr = playlistId
+          .split("~:-")
+          .map(id => id.trim())
+          .filter(id => id.length > 0);
 
-        let allVideos = [];
-        let combinedTitle = [];
-        let hasError = false;
+      let allVideos = [];
+      let combinedTitle = [];
+      let hasError = false;
 
-        for (let singleId of listArr) {
-            const results = await getAllVideosFromYouTube(singleId);
-            if (results.error) {
-                console.error(`Error al obtener la playlist ${singleId}:`, results.error);
-                hasError = true;
-                return res.status(500).json({ status: 500, message: `Error al obtener la playlist ${singleId}: ${results.error}` });
-            }
+      for (let singleId of listArr) {
+          const results = await getAllVideosFromYouTube(singleId);
+          if (results.error) {
+              console.error(`[SERVER] Error al obtener la playlist ${singleId}:`, results.error);
+              hasError = true;
+              return res.status(500).json({ status: 500, message: `Error al obtener la playlist ${singleId}: ${results.error}` });
+          }
 
-            if (results?.items) {
-                allVideos = allVideos.concat(
-                    results.items.map(v => ({
-                        id: v.snippet.resourceId?.videoId,
-                        title: v.snippet?.title,
-                        thumbnail: v.snippet?.thumbnails?.default?.url || ""
-                    }))
-                );
-                combinedTitle.push(results.playlistTitle || singleId);
-            }
-        }
+          if (results?.items) {
+              allVideos = allVideos.concat(
+                  results.items.map(v => ({
+                      id: v.snippet.resourceId?.videoId,
+                      title: v.snippet?.title,
+                      thumbnail: v.snippet?.thumbnails?.default?.url || ""
+                  }))
+              );
+              combinedTitle.push(results.playlistTitle || singleId);
+          }
+      }
 
-        if (hasError) {
-            return;
-        }
+      if (hasError) {
+          return;
+      }
 
-        if (rabbitMQChannel) {
-            const message = {
-                action: 'load',
-                token: token,
-                videoIds: allVideos.map(video => video.id),
-                playlistTitle: combinedTitle.join(" + ")
-            };
-            rabbitMQChannel.sendToQueue('music_queue', Buffer.from(JSON.stringify(message)));
-            console.log("Mensaje enviado a RabbitMQ con token:", token);
-        }
+      if (!rabbitMQChannel) {
+          console.error("[SERVER] Error: No hay conexión con RabbitMQ");
+          return res.status(500).json({ status: 500, message: "Error de conexión con RabbitMQ" });
+      }
 
-        res.json({ status: 200, token: token, title: combinedTitle.join(" + "), response: allVideos });
-        console.log("5. Respuesta enviada al cliente.");
+      const message = {
+          action: 'load',
+          token: token,
+          videoIds: allVideos.map(video => video.id),
+          playlistTitle: combinedTitle.join(" + ")
+      };
 
-    } catch (error) {
-        console.error("Error en el servidor:", error);
-        res.status(500).json({ status: 500, message: error.message || "Server error" });
-    }
+      console.log("[SERVER] Enviando mensaje a RabbitMQ:", {
+          token: message.token,
+          videoCount: message.videoIds.length,
+          title: message.playlistTitle
+      });
+
+      rabbitMQChannel.sendToQueue('music_queue', Buffer.from(JSON.stringify(message)));
+      
+      res.json({ status: 200, token: token, title: combinedTitle.join(" + "), response: allVideos });
+      console.log("[SERVER] Respuesta enviada al cliente.");
+
+  } catch (error) {
+      console.error("[SERVER] Error en el servidor:", error);
+      res.status(500).json({ status: 500, message: error.message || "Server error" });
+  }
 });
 
 app.post('/api/control', (req, res) => {
