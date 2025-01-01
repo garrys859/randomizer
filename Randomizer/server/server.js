@@ -106,6 +106,7 @@ botClient.once('ready', () => {
 
 botClient.on('messageCreate', async (message) => {
   if (!message.content.startsWith('!') || message.author.bot) return;
+
   const args = message.content.slice(1).trim().split(' ');
   const command = args.shift().toLowerCase();
 
@@ -133,7 +134,7 @@ botClient.on('messageCreate', async (message) => {
       player = createAudioPlayer();
       connection.subscribe(player);
 
-      const playNext = () => {
+      const playNext = async () => {
         if (currentIndex >= playlist.length) {
           message.channel.send("Lista de reproducción terminada.");
           connection.destroy();
@@ -141,20 +142,34 @@ botClient.on('messageCreate', async (message) => {
           return;
         }
 
-        const videoUrl = `https://www.youtube.com/watch?v=${playlist[currentIndex].id}`;
-        const stream = ytdl(videoUrl, { filter: 'audioonly' });
-        const resource = createAudioResource(stream);
+        try {
+          const videoUrl = `https://www.youtube.com/watch?v=${playlist[currentIndex].id}`;
+          const stream = ytdl(videoUrl, { filter: 'audioonly' }); // Manejo del stream
+          const resource = createAudioResource(stream);
 
-        player.play(resource);
-        message.channel.send(`Reproduciendo: ${playlist[currentIndex].title}`);
-        currentIndex++;
+          player.play(resource);
+          player.once('error', (error) => {
+            console.error(`Error al reproducir el video: ${playlist[currentIndex].title}`, error);
+            message.channel.send(`Error al reproducir: ${playlist[currentIndex].title}. Saltando al siguiente.`);
+            currentIndex++;
+            playNext(); // Reproduce el siguiente video
+          });
+
+          message.channel.send(`Reproduciendo: ${playlist[currentIndex].title}`);
+          currentIndex++;
+        } catch (error) {
+          console.error(`Error en el video ${playlist[currentIndex].title}:`, error);
+          message.channel.send(`No se pudo reproducir ${playlist[currentIndex].title}. Saltando al siguiente.`);
+          currentIndex++;
+          playNext();
+        }
       };
 
       player.on('idle', playNext);
       playNext();
     } catch (error) {
-      console.error(error);
-      message.reply("Error al reproducir la playlist.");
+      console.error("Error en el comando !play:", error);
+      message.reply("Hubo un error al reproducir la playlist.");
     }
   }
 
