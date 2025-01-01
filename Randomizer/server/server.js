@@ -1,3 +1,9 @@
+/**
+ * server.js
+ * -----------
+ * Servidor Node + Express con funcionalidad de backend y bot de Discord.
+ */
+
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -33,7 +39,7 @@ async function getAllVideosFromYouTube(playlistId) {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`Error en la API de YouTube: ${resp.status}`);
     const data = await resp.json();
-    items = items.concat(data.items.filter(v => v.snippet && v.snippet.resourceId && v.snippet.title));
+    items = items.concat(data.items);
     nextPageToken = data.nextPageToken || "";
   } while (nextPageToken);
   return items.map(v => ({
@@ -49,17 +55,9 @@ async function getAllVideosFromYouTube(playlistId) {
 app.get('/api/playlist', (req, res) => {
   const token = req.query.token;
   if (!token || !playlists[token]) {
-    return res.status(404).json({
-      status: 404,
-      message: "Playlist no encontrada.",
-      hint: "Asegúrate de proporcionar un token válido o de haber guardado previamente una playlist.",
-    });
+    return res.status(404).json({ status: 404, message: "Playlist no encontrada." });
   }
-  res.json({
-    status: 200,
-    message: "Playlist encontrada con éxito.",
-    playlist: playlists[token],
-  });
+  res.json({ playlist: playlists[token] }); // Envolver respuesta en `playlist`
 });
 
 /**
@@ -68,18 +66,10 @@ app.get('/api/playlist', (req, res) => {
 app.post('/api/playlist', (req, res) => {
   const { token, playlist } = req.body;
   if (!token || !playlist) {
-    return res.status(400).json({
-      status: 400,
-      message: "Faltan datos (token o playlist).",
-      hint: "Asegúrate de enviar ambos campos en la solicitud.",
-    });
+    return res.status(400).json({ status: 400, message: "Faltan datos (token o playlist)." });
   }
   playlists[token] = playlist;
-  res.json({
-    status: 200,
-    message: "Playlist guardada con éxito.",
-    token,
-  });
+  res.json({ message: "Playlist guardada con éxito." });
 });
 
 /**
@@ -88,18 +78,10 @@ app.post('/api/playlist', (req, res) => {
 app.post('/api/randomize', (req, res) => {
   const { token } = req.body;
   if (!token || !playlists[token]) {
-    return res.status(404).json({
-      status: 404,
-      message: "Playlist no encontrada.",
-      hint: "Proporciona un token válido asociado a una playlist existente.",
-    });
+    return res.status(404).json({ status: 404, message: "Playlist no encontrada." });
   }
   playlists[token] = playlists[token].sort(() => Math.random() - 0.5);
-  res.json({
-    status: 200,
-    message: "Playlist randomizada con éxito.",
-    playlist: playlists[token],
-  });
+  res.json({ message: "Playlist randomizada con éxito.", playlist: playlists[token] });
 });
 
 /**
@@ -124,7 +106,6 @@ botClient.once('ready', () => {
 
 botClient.on('messageCreate', async (message) => {
   if (!message.content.startsWith('!') || message.author.bot) return;
-
   const args = message.content.slice(1).trim().split(' ');
   const command = args.shift().toLowerCase();
 
@@ -134,13 +115,11 @@ botClient.on('messageCreate', async (message) => {
 
     try {
       const response = await fetch(`https://randomizer-cg53.onrender.com/api/playlist?token=${token}`);
+      if (!response.ok) throw new Error("Playlist no encontrada.");
+
       const data = await response.json();
-
-      if (response.status !== 200) {
-        return message.reply(`Error al cargar la playlist: ${data.message}. Sugerencia: ${data.hint}`);
-      }
-
       playlist = data.playlist;
+
       if (!playlist || playlist.length === 0) {
         return message.reply("La playlist está vacía o no existe.");
       }
@@ -154,46 +133,28 @@ botClient.on('messageCreate', async (message) => {
       player = createAudioPlayer();
       connection.subscribe(player);
 
-      const playNext = async () => {
+      const playNext = () => {
         if (currentIndex >= playlist.length) {
           message.channel.send("Lista de reproducción terminada.");
-          if (getVoiceConnection(message.guild.id)) {
-            getVoiceConnection(message.guild.id).destroy();
-          }
+          connection.destroy();
           currentIndex = 0; // Reinicia el índice
           return;
         }
 
-        const video = playlist[currentIndex];
-        const videoUrl = `https://www.youtube.com/watch?v=${video.id}`;
+        const videoUrl = `https://www.youtube.com/watch?v=${playlist[currentIndex].id}`;
+        const stream = ytdl(videoUrl, { filter: 'audioonly' });
+        const resource = createAudioResource(stream);
 
-        try {
-          const stream = ytdl(videoUrl, { filter: 'audioonly' });
-          const resource = createAudioResource(stream);
-
-          player.play(resource);
-          player.once('error', (error) => {
-            console.error(`Error al reproducir el video: ${video.title}`, error);
-            message.channel.send(`Error al reproducir: ${video.title}. Saltando al siguiente.`);
-            currentIndex++;
-            playNext();
-          });
-
-          message.channel.send(`Reproduciendo: ${video.title}`);
-          currentIndex++;
-        } catch (error) {
-          console.error(`Error en el video ${video.title}:`, error);
-          message.channel.send(`No se pudo reproducir ${video.title}. Saltando al siguiente.`);
-          currentIndex++;
-          playNext();
-        }
+        player.play(resource);
+        message.channel.send(`Reproduciendo: ${playlist[currentIndex].title}`);
+        currentIndex++;
       };
 
       player.on('idle', playNext);
       playNext();
     } catch (error) {
-      console.error("Error en el comando !play:", error);
-      message.reply("Hubo un error al reproducir la playlist.");
+      console.error(error);
+      message.reply("Error al reproducir la playlist.");
     }
   }
 
@@ -226,12 +187,7 @@ botClient.on('messageCreate', async (message) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
       });
-      const data = await response.json();
-
-      if (response.status !== 200) {
-        return message.reply(`Error al randomizar la playlist: ${data.message}. Sugerencia: ${data.hint}`);
-      }
-
+      if (!response.ok) throw new Error("Error al randomizar.");
       message.reply("Playlist randomizada con éxito.");
     } catch (error) {
       console.error(error);
