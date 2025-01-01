@@ -33,7 +33,7 @@ async function getAllVideosFromYouTube(playlistId) {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`Error en la API de YouTube: ${resp.status}`);
     const data = await resp.json();
-    items = items.concat(data.items);
+    items = items.concat(data.items.filter(v => v.snippet && v.snippet.resourceId && v.snippet.title));
     nextPageToken = data.nextPageToken || "";
   } while (nextPageToken);
   return items.map(v => ({
