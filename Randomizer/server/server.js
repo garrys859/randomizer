@@ -1,19 +1,19 @@
-require('dotenv').config();
+process.env.NODE_ENV !== 'production' && require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 const amqp = require('amqplib');
 const { v4: uuidv4 } = require('uuid');
-
 const app = express();
 app.use(cors());
 app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const YT_API_KEY = process.env.YT_API_KEY;
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+const RABBITMQ_URL = process.env.RABBITMQ_URL;
 
-if (!YT_API_KEY || !DISCORD_BOT_TOKEN) {
-    console.error("ERROR: Debes configurar YT_API_KEY y DISCORD_BOT_TOKEN en tu archivo .env o en las variables de entorno.");
+if (!YT_API_KEY || !DISCORD_BOT_TOKEN || !RABBITMQ_URL) {
+    console.error("ERROR: Debes configurar YT_API_KEY, DISCORD_BOT_TOKEN y RABBITMQ_URL en las variables de entorno.");
     process.exit(1);
 }
 

@@ -11,12 +11,13 @@
   "license": "ISC",
   "dependencies": {
     "@discordjs/voice": "^0.18.0",
+    "amqplib": "^0.10.5",
     "axios": "^1.7.9",
     "cors": "^2.8.5",
     "discord.js": "^14.16.3",
-    "dotenv": "^16.0.0",
+    "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "node-fetch": "^2.6.1",
+    "node-fetch": "^2.7.0",
     "uuid": "^11.0.3",
     "ws": "^8.18.0",
     "ytdl-core": "^4.11.5"
