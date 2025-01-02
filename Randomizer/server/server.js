@@ -57,13 +57,15 @@ async function connectToRabbitMQ() {
       const channel = await connection.createChannel();
       const queue = 'music_queue';
       
-      // Asegurarse de que la configuración de la cola sea idéntica en servidor y bot
+      // Configuración idéntica en ambos lados
       await channel.assertQueue(queue, { 
           durable: false,
           arguments: {
-              'x-message-ttl': 3600000 // mensajes expiran después de 1 hora
-          }
+              'x-message-ttl': 3600000
+          },
+          autoDelete: false  // Mantener consistente con el bot
       });
+      
       return channel;
   } catch (error) {
       console.error("Error al conectar a RabbitMQ:", error);
