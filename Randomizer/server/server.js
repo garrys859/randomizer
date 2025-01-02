@@ -69,6 +69,21 @@ connectToRabbitMQ().then(channel => {
     rabbitMQChannel = channel;
 });
 
+async function sendToRabbitMQ(message) {
+  if (!rabbitMQChannel) {
+      console.error("[SERVER] No hay conexión con RabbitMQ");
+      throw new Error("No hay conexión con RabbitMQ");
+  }
+
+  console.log("[SERVER] Enviando mensaje a RabbitMQ:", {
+      action: message.action,
+      token: message.token,
+      videoCount: message.videoIds?.length
+  });
+
+  return rabbitMQChannel.sendToQueue('music_queue', Buffer.from(JSON.stringify(message)));
+}
+
 app.get('/api/playlist', async (req, res) => {
   try {
       const token = uuidv4();
@@ -119,27 +134,28 @@ app.get('/api/playlist', async (req, res) => {
       }
 
       const message = {
-          action: 'load',
-          token: token,
-          videoIds: allVideos.map(video => video.id),
-          playlistTitle: combinedTitle.join(" + ")
-      };
+        action: 'load',
+        token: token,
+        videoIds: allVideos.map(video => video.id),
+        playlistTitle: combinedTitle.join(" + ")
+    };
 
-      console.log("[SERVER] Enviando mensaje a RabbitMQ:", {
-          token: message.token,
-          videoCount: message.videoIds.length,
-          title: message.playlistTitle
-      });
+    try {
+        await sendToRabbitMQ(message);
+        console.log("[SERVER] Mensaje enviado exitosamente a RabbitMQ");
+    } catch (rabbitError) {
+        console.error("[SERVER] Error al enviar mensaje a RabbitMQ:", rabbitError);
+        return res.status(500).json({ 
+            status: 500, 
+            message: "Error de comunicación con el servicio de cola" 
+        });
+    }
 
-      rabbitMQChannel.sendToQueue('music_queue', Buffer.from(JSON.stringify(message)));
-      
-      res.json({ status: 200, token: token, title: combinedTitle.join(" + "), response: allVideos });
-      console.log("[SERVER] Respuesta enviada al cliente.");
-
-  } catch (error) {
-      console.error("[SERVER] Error en el servidor:", error);
-      res.status(500).json({ status: 500, message: error.message || "Server error" });
-  }
+    res.json({ status: 200, token: token, title: combinedTitle.join(" + "), response: allVideos });
+} catch (error) {
+    console.error("[SERVER] Error en el servidor:", error);
+    res.status(500).json({ status: 500, message: error.message || "Server error" });
+}
 });
 
 app.post('/api/control', (req, res) => {
