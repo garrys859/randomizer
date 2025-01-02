@@ -52,16 +52,23 @@ async function getAllVideosFromYouTube(playlistId) {
 }
 
 async function connectToRabbitMQ() {
-    try {
-        const connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://localhost');
-        const channel = await connection.createChannel();
-        const queue = 'music_queue';
-        await channel.assertQueue(queue, { durable: false });
-        return channel;
-    } catch (error) {
-        console.error("Error al conectar a RabbitMQ:", error);
-        return null;
-    }
+  try {
+      const connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://localhost');
+      const channel = await connection.createChannel();
+      const queue = 'music_queue';
+      
+      // Asegurarse de que la configuración de la cola sea idéntica en servidor y bot
+      await channel.assertQueue(queue, { 
+          durable: false,
+          arguments: {
+              'x-message-ttl': 3600000 // mensajes expiran después de 1 hora
+          }
+      });
+      return channel;
+  } catch (error) {
+      console.error("Error al conectar a RabbitMQ:", error);
+      return null;
+  }
 }
 
 let rabbitMQChannel = null;
