@@ -7,7 +7,6 @@
   <!-- LZString y Elasticlunr (minificados) -->
   <script src="lz-string.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/elasticlunr/elasticlunr.js"></script>
-  <script src="main.js"></script>
 </head>
 <body>
   <div class="container">
@@ -18,8 +17,8 @@
     <p>El ID se encuentra en la URL justo después de "list="</p>
     <p>Si quieres agregar múltiples listas, usa ~:- ejemplo: PL1234~:-PL5678 (solo con IDs).</p>
     <button id="loadBtn">Cargar Playlist</button>
+    <div id="playlistInfo"> <p id="playlistTitleDisplay" class="hidden"></p> <p id="tokenDisplay" class="hidden"></p> </div>
     <button id="resumeBtn" class="hidden">Retomar Sesión Anterior</button>
-
     <br><br>
 
     <div id="playerArea" class="player-area hidden">
@@ -49,5 +48,6 @@
       <ul id="savedSongsList"></ul>
     </div>
   </div>
+  <script src="main.js"></script>
 </body>
 </html>

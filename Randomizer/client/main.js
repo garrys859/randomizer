@@ -86,29 +86,28 @@ function getPlaylistIdFromUrl(urlOrId) {
 async function loadPlaylist(pidInput) {
   try {
     const playlistId = getPlaylistIdFromUrl(pidInput);
-    console.log("Playlist ID extraído:", playlistId);
+    console.log("1. Playlist ID extraído:", playlistId); // Verifica el ID extraído
 
     const url = `${baseURL}/api/playlist?playlistId=${encodeURIComponent(playlistId)}`;
-    console.log("URL para cargar la playlist:", url);
+    console.log("2. URL para cargar la playlist:", url); // Verifica la URL construida
 
     const resp = await fetch(url);
+    console.log("3. Respuesta del servidor (cruda):", resp); // ¡IMPORTANTE!
     if (!resp.ok) {
-      console.error("Error al contactar con el servidor:", resp.status);
-      alert("Error al contactar con el servidor");
+      console.error("Error al contactar con el servidor:", resp.status, await resp.text()); // Incluye el texto del error
+      alert("Error al contactar con el servidor. Código: " + resp.status);
       return;
     }
 
     const data = await resp.json();
-    console.log("Datos recibidos del servidor:", data);
-
     if (data.status !== 200) {
-      console.error("Error en la respuesta del servidor:", data);
-      alert("No se pudo cargar la playlist");
+      console.error("5. Error en la respuesta del servidor:", data);
+      alert("No se pudo cargar la playlist: " + (data.message || "Error desconocido"));
       return;
     }
 
     videos = data.response;
-    console.log("Videos cargados:", videos);
+    console.log("6. Videos cargados:", videos);
 
     shuffleArray(videos);
 
@@ -128,13 +127,11 @@ async function loadPlaylist(pidInput) {
     } else {
       playVideoAtIndex(currentIndex);
     }
-
   } catch (err) {
     console.error("Error al cargar la playlist:", err);
     alert("Ocurrió un error al obtener la playlist");
   }
 }
-
 function fillSearchResults(results) {
   const searchResults = document.getElementById("searchResults");
   searchResults.innerHTML = "";
