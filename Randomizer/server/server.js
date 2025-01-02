@@ -1,104 +1,78 @@
-process.env.NODE_ENV !== 'production' && require('dotenv').config();
+/**
+ * server.js
+ * -----------
+ * Servidor Node + Express que:
+ * 1. Lee .env para obtener la clave de YouTube.
+ * 2. Ofrece un endpoint /api/playlist?playlistId=...
+ * 3. Llama a la YouTube Data API para recoger todos los videos de la playlist (paginando).
+ * 4. Devuelve la lista en JSON al front-end.
+ */
+
+require('dotenv').config();        // Carga variables de entorno (YT_API_KEY)
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
-const amqp = require('amqplib');
-const { v4: uuidv4 } = require('uuid');
+
 const app = express();
+
+// 1) Habilitamos CORS antes de definir las rutas
 app.use(cors());
-app.use(express.json());
+
 const PORT = process.env.PORT || 3000;
+
+// Tomamos la API key de las variables de entorno
 const YT_API_KEY = process.env.YT_API_KEY;
-const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
-const RABBITMQ_URL = process.env.RABBITMQ_URL;
-
-if (!YT_API_KEY || !DISCORD_BOT_TOKEN || !RABBITMQ_URL) {
-    console.error("ERROR: Debes configurar YT_API_KEY, DISCORD_BOT_TOKEN y RABBITMQ_URL en las variables de entorno.");
-    process.exit(1);
+if (!YT_API_KEY) {
+  console.error("ERROR: Debes configurar YT_API_KEY en tu archivo .env o en las variables de entorno.");
+  process.exit(1);
 }
 
+/**
+ * Función para obtener TODOS los videos de una playlist (paginación de 50 en 50).
+ * Retorna un objeto { items, playlistTitle } con la lista de ítems y el título.
+ */
 async function getAllVideosFromYouTube(playlistId) {
-    let items = [];
-    let nextPageToken = "";
-    let playlistTitle = "";
-    let error = null;
+  let items = [];
+  let nextPageToken = "";
+  let playlistTitle = "";
+  let error = null; // Variable para almacenar errores
 
-    try {
-        do {
-            const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&pageToken=${nextPageToken}&playlistId=${playlistId}&key=${YT_API_KEY}`;
-            const resp = await fetch(url);
-
-            if (!resp.ok) {
-                const errorText = await resp.text();
-                throw new Error(`YouTube API error: ${resp.status} - ${errorText}`);
-            }
-
-            const data = await resp.json();
-
-            if (!playlistTitle && data.items && data.items.length > 0) {
-                playlistTitle = data.items[0].snippet.channelTitle;
-            }
-
-            if (data.items) items = items.concat(data.items);
-            nextPageToken = data.nextPageToken || "";
-
-        } while (nextPageToken);
-    } catch (err) {
-        console.error("Error en getAllVideosFromYouTube:", err);
-        error = err.message;
-    }
-
-    return { items, playlistTitle, error };
-}
-
-async function connectToRabbitMQ() {
   try {
-      const connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://localhost');
-      const channel = await connection.createChannel();
-      const queue = 'music_queue';
-      
-      // Configuración idéntica en ambos lados
-      await channel.assertQueue(queue, { 
-          durable: false,
-          arguments: {
-              'x-message-ttl': 3600000
-          },
-          autoDelete: false  // Mantener consistente con el bot
-      });
-      
-      return channel;
-  } catch (error) {
-      console.error("Error al conectar a RabbitMQ:", error);
-      return null;
-  }
-}
+      do {
+          const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&pageToken=${nextPageToken}&playlistId=${playlistId}&key=${YT_API_KEY}`;
+          const resp = await fetch(url);
 
-let rabbitMQChannel = null;
-connectToRabbitMQ().then(channel => {
-    rabbitMQChannel = channel;
-});
+          if (!resp.ok) {
+              const errorText = await resp.text(); // Obtener el texto del error
+              throw new Error(`YouTube API error: ${resp.status} - ${errorText}`); // Lanzar un error con más detalles
+          }
 
-async function sendToRabbitMQ(message) {
-  if (!rabbitMQChannel) {
-      console.error("[SERVER] No hay conexión con RabbitMQ");
-      throw new Error("No hay conexión con RabbitMQ");
+          const data = await resp.json();
+
+          if (!playlistTitle && data.items && data.items.length > 0) { // Comprobar si data.items existe y tiene elementos
+              playlistTitle = data.items[0].snippet.channelTitle;
+          }
+
+          if(data.items) items = items.concat(data.items); // Comprobar si data.items existe antes de concatenar
+          nextPageToken = data.nextPageToken || "";
+
+      } while (nextPageToken);
+  } catch (err) {
+      console.error("Error en getAllVideosFromYouTube:", err);
+      error = err.message; // Guarda el mensaje de error
   }
 
-  console.log("[SERVER] Enviando mensaje a RabbitMQ:", {
-      action: message.action,
-      token: message.token,
-      videoCount: message.videoIds?.length
-  });
-
-  return rabbitMQChannel.sendToQueue('music_queue', Buffer.from(JSON.stringify(message)));
+  return { items, playlistTitle, error }; // Devuelve también el error
 }
 
+/**
+ * GET /api/playlist?playlistId=<ID_O_IDS>
+ * Acepta un ID de playlist (por ejemplo "PLxxxxx") o varios separados con "~:-".
+ */
 app.get('/api/playlist', async (req, res) => {
   try {
-      const token = uuidv4();
       const playlistId = req.query.playlistId;
-      console.log("[SERVER] 1. Playlist ID recibido:", playlistId);
-      console.log("[SERVER] Token generado:", token);
+      console.log("1. Playlist ID recibido:", playlistId);
 
       if (!playlistId) {
           return res.status(400).json({ status: 400, message: "No playlistId provided." });
@@ -111,20 +85,20 @@ app.get('/api/playlist', async (req, res) => {
 
       let allVideos = [];
       let combinedTitle = [];
-      let hasError = false;
+      let hasError = false; // Variable para controlar si hubo un error
 
       for (let singleId of listArr) {
           const results = await getAllVideosFromYouTube(singleId);
-          if (results.error) {
-              console.error(`[SERVER] Error al obtener la playlist ${singleId}:`, results.error);
-              hasError = true;
-              return res.status(500).json({ status: 500, message: `Error al obtener la playlist ${singleId}: ${results.error}` });
+          if (results.error) { // Comprobar si hubo un error en la llamada a la API
+              console.error(`Error al obtener la playlist ${singleId}:`, results.error);
+              hasError = true; // Establecer la variable de error
+              return res.status(500).json({ status: 500, message: `Error al obtener la playlist ${singleId}: ${results.error}` }); // Enviar respuesta de error inmediatamente
           }
 
-          if (results?.items) {
+          if (results?.items) { // Usar optional chaining
               allVideos = allVideos.concat(
                   results.items.map(v => ({
-                      id: v.snippet.resourceId?.videoId,
+                      id: v.snippet.resourceId?.videoId, // Usar optional chaining aquí también
                       title: v.snippet?.title,
                       thumbnail: v.snippet?.thumbnails?.default?.url || ""
                   }))
@@ -133,57 +107,25 @@ app.get('/api/playlist', async (req, res) => {
           }
       }
 
-      if (hasError) {
-          return;
+      if (hasError) { // Si hubo un error en alguna playlist, no enviar una respuesta exitosa
+          return; // Ya se envió la respuesta de error dentro del bucle
       }
+      
+      res.json({
+          status: 200,
+          title: combinedTitle.join(" + "),
+          response: allVideos
+      });
+      console.log("5. Respuesta enviada al cliente.");
 
-      if (!rabbitMQChannel) {
-          console.error("[SERVER] Error: No hay conexión con RabbitMQ");
-          return res.status(500).json({ status: 500, message: "Error de conexión con RabbitMQ" });
-      }
-
-      const message = {
-        action: 'load',
-        token: token,
-        videoIds: allVideos.map(video => video.id),
-        playlistTitle: combinedTitle.join(" + ")
-    };
-
-    try {
-        await sendToRabbitMQ(message);
-        console.log("[SERVER] Mensaje enviado exitosamente a RabbitMQ");
-    } catch (rabbitError) {
-        console.error("[SERVER] Error al enviar mensaje a RabbitMQ:", rabbitError);
-        return res.status(500).json({ 
-            status: 500, 
-            message: "Error de comunicación con el servicio de cola" 
-        });
-    }
-
-    res.json({ status: 200, token: token, title: combinedTitle.join(" + "), response: allVideos });
-} catch (error) {
-    console.error("[SERVER] Error en el servidor:", error);
-    res.status(500).json({ status: 500, message: error.message || "Server error" });
-}
+  } catch (error) {
+      console.error("Error en el servidor:", error);
+      res.status(500).json({ status: 500, message: error.message || "Server error" });
+  }
 });
 
-app.post('/api/control', (req, res) => {
-    const { token, action } = req.body;
-    if (!token || !action) {
-        return res.status(400).send("Faltan token o acción.");
-    }
-    if (rabbitMQChannel) {
-        const message = {
-            action: action,
-            token: token
-        };
-        rabbitMQChannel.sendToQueue('music_queue', Buffer.from(JSON.stringify(message)));
-        console.log(`Mensaje de control ${action} enviado a RabbitMQ con token:`, token);
-    }
-    res.send("OK");
-});
-
+// Ponemos app.listen al final
 app.listen(PORT, () => {
-    console.log(`Servidor escuchando en http://localhost:${PORT}`);
-    console.log("Pulsa CTRL+C para detener.");
+  console.log(`Servidor escuchando en http://localhost:${PORT}`);
+  console.log("Pulsa CTRL+C para detener.");
 });
