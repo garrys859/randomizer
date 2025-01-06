@@ -1,130 +1,206 @@
 /**
  * server.js
  * -----------
- * Servidor Node + Express que:
- * 1. Lee .env para obtener la clave de YouTube.
- * 2. Ofrece un endpoint /api/playlist?playlistId=...
- * 3. Llama a la YouTube Data API para recoger todos los videos de la playlist (paginando).
- * 4. Devuelve la lista en JSON al front-end.
+ * Servidor Node + Express que maneja playlists, videos individuales y mixes de YouTube
  */
 
-require('dotenv').config();        // Carga variables de entorno (YT_API_KEY)
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 
 const app = express();
-
-// 1) Habilitamos CORS antes de definir las rutas
 app.use(cors());
 
 const PORT = process.env.PORT || 3000;
-
-// Tomamos la API key de las variables de entorno
 const YT_API_KEY = process.env.YT_API_KEY;
+
 if (!YT_API_KEY) {
   console.error("ERROR: Debes configurar YT_API_KEY en tu archivo .env o en las variables de entorno.");
   process.exit(1);
 }
 
 /**
- * Función para obtener TODOS los videos de una playlist (paginación de 50 en 50).
- * Retorna un objeto { items, playlistTitle } con la lista de ítems y el título.
+ * Función para obtener información de un video individual
+ */
+async function getVideoInfo(videoId) {
+  try {
+    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${YT_API_KEY}`;
+    const resp = await fetch(url);
+
+    if (!resp.ok) {
+      const errorText = await resp.text();
+      throw new Error(`YouTube API error: ${resp.status} - ${errorText}`);
+    }
+
+    const data = await resp.json();
+    
+    if (!data.items || data.items.length === 0) {
+      throw new Error('Video not found');
+    }
+
+    return {
+      id: videoId,
+      title: data.items[0].snippet.title,
+      thumbnail: data.items[0].snippet.thumbnails?.default?.url || ""
+    };
+  } catch (err) {
+    console.error("Error en getVideoInfo:", err);
+    throw err;
+  }
+}
+
+/**
+ * Función para obtener videos de una playlist
  */
 async function getAllVideosFromYouTube(playlistId) {
   let items = [];
   let nextPageToken = "";
   let playlistTitle = "";
-  let error = null; // Variable para almacenar errores
+  let error = null;
 
   try {
-      do {
-          const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&pageToken=${nextPageToken}&playlistId=${playlistId}&key=${YT_API_KEY}`;
-          const resp = await fetch(url);
+    do {
+      const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&pageToken=${nextPageToken}&playlistId=${playlistId}&key=${YT_API_KEY}`;
+      const resp = await fetch(url);
 
-          if (!resp.ok) {
-              const errorText = await resp.text(); // Obtener el texto del error
-              throw new Error(`YouTube API error: ${resp.status} - ${errorText}`); // Lanzar un error con más detalles
-          }
+      if (!resp.ok) {
+        const errorText = await resp.text();
+        throw new Error(`YouTube API error: ${resp.status} - ${errorText}`);
+      }
 
-          const data = await resp.json();
+      const data = await resp.json();
 
-          if (!playlistTitle && data.items && data.items.length > 0) { // Comprobar si data.items existe y tiene elementos
-              playlistTitle = data.items[0].snippet.channelTitle;
-          }
+      if (!playlistTitle && data.items?.[0]) {
+        playlistTitle = data.items[0].snippet.channelTitle;
+      }
 
-          if(data.items) items = items.concat(data.items); // Comprobar si data.items existe antes de concatenar
-          nextPageToken = data.nextPageToken || "";
+      if (data.items) {
+        items = items.concat(data.items);
+      }
+      nextPageToken = data.nextPageToken || "";
 
-      } while (nextPageToken);
+    } while (nextPageToken);
   } catch (err) {
-      console.error("Error en getAllVideosFromYouTube:", err);
-      error = err.message; // Guarda el mensaje de error
+    console.error("Error en getAllVideosFromYouTube:", err);
+    error = err.message;
   }
 
-  return { items, playlistTitle, error }; // Devuelve también el error
+  return { items, playlistTitle, error };
 }
 
 /**
- * GET /api/playlist?playlistId=<ID_O_IDS>
- * Acepta un ID de playlist (por ejemplo "PLxxxxx") o varios separados con "~:-".
+ * GET /api/video?videoId=<ID>
+ * Maneja videos individuales y mixes
  */
-app.get('/api/playlist', async (req, res) => {
+app.get('/api/video', async (req, res) => {
   try {
-      const playlistId = req.query.playlistId;
-      console.log("1. Playlist ID recibido:", playlistId);
+    const videoId = req.query.videoId;
+    console.log("1. Video ID recibido:", videoId);
 
-      if (!playlistId) {
-          return res.status(400).json({ status: 400, message: "No playlistId provided." });
-      }
+    if (!videoId) {
+      return res.status(400).json({ status: 400, message: "No videoId provided." });
+    }
 
-      const listArr = playlistId
-          .split("~:-")
-          .map(id => id.trim())
-          .filter(id => id.length > 0);
+    // Verifica si el ID es parte de un mix (contiene RD en el ID)
+    if (videoId.includes('RD')) {
+      try {
+        // Para mixes, tratamos de obtener la información como una playlist
+        const results = await getAllVideosFromYouTube(videoId);
+        if (results.error) {
+          throw new Error(results.error);
+        }
 
-      let allVideos = [];
-      let combinedTitle = [];
-      let hasError = false; // Variable para controlar si hubo un error
+        const videos = results.items.map(v => ({
+          id: v.snippet.resourceId?.videoId,
+          title: v.snippet?.title,
+          thumbnail: v.snippet?.thumbnails?.default?.url || ""
+        }));
 
-      for (let singleId of listArr) {
-          const results = await getAllVideosFromYouTube(singleId);
-          if (results.error) { // Comprobar si hubo un error en la llamada a la API
-              console.error(`Error al obtener la playlist ${singleId}:`, results.error);
-              hasError = true; // Establecer la variable de error
-              return res.status(500).json({ status: 500, message: `Error al obtener la playlist ${singleId}: ${results.error}` }); // Enviar respuesta de error inmediatamente
-          }
-
-          if (results?.items) { // Usar optional chaining
-              allVideos = allVideos.concat(
-                  results.items.map(v => ({
-                      id: v.snippet.resourceId?.videoId, // Usar optional chaining aquí también
-                      title: v.snippet?.title,
-                      thumbnail: v.snippet?.thumbnails?.default?.url || ""
-                  }))
-              );
-              combinedTitle.push(results.playlistTitle || singleId);
-          }
-      }
-
-      if (hasError) { // Si hubo un error en alguna playlist, no enviar una respuesta exitosa
-          return; // Ya se envió la respuesta de error dentro del bucle
-      }
-      
-      res.json({
+        return res.json({
           status: 200,
-          title: combinedTitle.join(" + "),
-          response: allVideos
+          title: results.playlistTitle || "Mix",
+          response: videos
+        });
+      } catch (mixError) {
+        // Si falla como mix, intentamos obtenerlo como video individual
+        console.log("No es un mix válido, intentando como video individual");
+        const videoInfo = await getVideoInfo(videoId);
+        return res.json({
+          status: 200,
+          response: videoInfo
+        });
+      }
+    } else {
+      // Video individual
+      const videoInfo = await getVideoInfo(videoId);
+      res.json({
+        status: 200,
+        response: videoInfo
       });
-      console.log("5. Respuesta enviada al cliente.");
+    }
 
   } catch (error) {
-      console.error("Error en el servidor:", error);
-      res.status(500).json({ status: 500, message: error.message || "Server error" });
+    console.error("Error en el servidor:", error);
+    res.status(500).json({ status: 500, message: error.message || "Server error" });
   }
 });
 
-// Ponemos app.listen al final
+/**
+ * GET /api/playlist?playlistId=<ID_O_IDS>
+ * Maneja playlists individuales o múltiples separadas por ~:-
+ */
+app.get('/api/playlist', async (req, res) => {
+  try {
+    const playlistId = req.query.playlistId;
+    console.log("1. Playlist ID recibido:", playlistId);
+
+    if (!playlistId) {
+      return res.status(400).json({ status: 400, message: "No playlistId provided." });
+    }
+
+    const listArr = playlistId
+      .split("~:-")
+      .map(id => id.trim())
+      .filter(id => id.length > 0);
+
+    let allVideos = [];
+    let combinedTitle = [];
+
+    for (let singleId of listArr) {
+      const results = await getAllVideosFromYouTube(singleId);
+      if (results.error) {
+        return res.status(500).json({ 
+          status: 500, 
+          message: `Error al obtener la playlist ${singleId}: ${results.error}` 
+        });
+      }
+
+      if (results?.items) {
+        allVideos = allVideos.concat(
+          results.items.map(v => ({
+            id: v.snippet.resourceId?.videoId,
+            title: v.snippet?.title,
+            thumbnail: v.snippet?.thumbnails?.default?.url || ""
+          }))
+        );
+        combinedTitle.push(results.playlistTitle || singleId);
+      }
+    }
+
+    res.json({
+      status: 200,
+      title: combinedTitle.join(" + "),
+      response: allVideos
+    });
+    console.log("5. Respuesta enviada al cliente.");
+
+  } catch (error) {
+    console.error("Error en el servidor:", error);
+    res.status(500).json({ status: 500, message: error.message || "Server error" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en http://localhost:${PORT}`);
   console.log("Pulsa CTRL+C para detener.");
