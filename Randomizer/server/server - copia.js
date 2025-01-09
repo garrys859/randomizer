@@ -8,19 +8,9 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
-const { createServer } = require('http');
-const { Server } = require('socket.io');
 
 const app = express();
 app.use(cors());
-
-const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: {
-    origin: "*", // En producción, especifica tu dominio
-    methods: ["GET", "POST"]
-  }
-});
 
 const PORT = process.env.PORT || 3000;
 const YT_API_KEY = process.env.YT_API_KEY;
@@ -97,123 +87,6 @@ async function getAllVideosFromYouTube(playlistId) {
   }
 
   return { items, playlistTitle, error };
-}
-
-// Almacenamiento en memoria de las salas
-const rooms = new Map();
-
-// Configuración de Socket.IO
-io.on('connection', (socket) => {
-  console.log('Cliente conectado:', socket.id);
-
-  // Crear una nueva sala
-  socket.on('createRoom', async (roomId) => {
-    rooms.set(roomId, {
-      participants: new Set([socket.id]),
-      playlist: [],
-      currentTrack: null,
-      skipVotes: new Set()
-    });
-    socket.join(roomId);
-    socket.emit('roomCreated', roomId);
-    broadcastParticipants(roomId);
-  });
-
-  // Unirse a una sala existente
-  socket.on('joinRoom', async (roomId) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      room.participants.add(socket.id);
-      socket.join(roomId);
-      socket.emit('roomJoined', roomId);
-      
-      // Enviar estado actual de la sala al nuevo participante
-      socket.emit('playlistUpdate', room.playlist);
-      socket.emit('currentTrackUpdate', room.currentTrack);
-      broadcastParticipants(roomId);
-    } else {
-      socket.emit('error', 'Sala no encontrada');
-    }
-  });
-
-  // Actualizar playlist
-  socket.on('updatePlaylist', async ({ roomId, playlist }) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      room.playlist = playlist;
-      io.to(roomId).emit('playlistUpdate', playlist);
-    }
-  });
-
-  // Actualizar track actual
-  socket.on('updateCurrentTrack', async ({ roomId, track }) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      room.currentTrack = track;
-      io.to(roomId).emit('currentTrackUpdate', track);
-    }
-  });
-
-  // Sistema de votación para saltar
-  socket.on('voteSkip', ({ roomId }) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      room.skipVotes.add(socket.id);
-      
-      // Si más del 50% ha votado, saltar
-      if (room.skipVotes.size > room.participants.size / 2) {
-        io.to(roomId).emit('skipTrack');
-        room.skipVotes.clear();
-      } else {
-        io.to(roomId).emit('skipVoteUpdate', {
-          current: room.skipVotes.size,
-          needed: Math.ceil(room.participants.size / 2)
-        });
-      }
-    }
-  });
-
-  // Mensajes de chat
-  socket.on('chatMessage', ({ roomId, message }) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      io.to(roomId).emit('newChatMessage', {
-        userId: socket.id,
-        message,
-        timestamp: new Date().toISOString(),
-        username: `Usuario ${socket.id.slice(0, 4)}`
-      });
-    }
-  });
-
-  // Desconexión
-  socket.on('disconnect', () => {
-    console.log('Cliente desconectado:', socket.id);
-    for (const [roomId, room] of rooms.entries()) {
-      if (room.participants.has(socket.id)) {
-        room.participants.delete(socket.id);
-        room.skipVotes.delete(socket.id);
-        
-        if (room.participants.size === 0) {
-          rooms.delete(roomId);
-        } else {
-          broadcastParticipants(roomId);
-        }
-      }
-    }
-  });
-});
-
-// Función auxiliar para transmitir lista de participantes
-function broadcastParticipants(roomId) {
-  const room = rooms.get(roomId);
-  if (room) {
-    const participantList = Array.from(room.participants).map(id => ({
-      id,
-      name: `Usuario ${id.slice(0, 4)}`
-    }));
-    io.to(roomId).emit('participantsUpdate', participantList);
-  }
 }
 
 /**
@@ -328,9 +201,7 @@ app.get('/api/playlist', async (req, res) => {
   }
 });
 
-// Usar httpServer en lugar de app.listen
-httpServer.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`Servidor escuchando en http://localhost:${PORT}`);
-  console.log("WebSocket habilitado");
   console.log("Pulsa CTRL+C para detener.");
 });
