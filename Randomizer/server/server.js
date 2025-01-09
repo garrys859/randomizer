@@ -125,32 +125,47 @@ io.on('connection', (socket) => {
     if (room) {
       room.participants.add(socket.id);
       socket.join(roomId);
-      socket.emit('roomJoined', roomId);
-      
+
       // Enviar estado actual de la sala al nuevo participante
-      socket.emit('playlistUpdate', room.playlist);
-      socket.emit('currentTrackUpdate', room.currentTrack);
+      socket.emit('roomJoined', {
+        roomId,
+        currentPlaylist: room.playlist || [],
+        currentTrack: room.currentTrack,
+        currentTime: room.currentTime // Añadimos tiempo de reproducción
+      });
+
+      // Notificar a otros participantes
       broadcastParticipants(roomId);
     } else {
       socket.emit('error', 'Sala no encontrada');
     }
   });
 
-  // Actualizar playlist
-  socket.on('updatePlaylist', async ({ roomId, playlist }) => {
+  // Actualizar tiempo de reproducción
+  socket.on('updatePlaybackTime', ({ roomId, time }) => {
     const room = rooms.get(roomId);
     if (room) {
-      room.playlist = playlist;
-      io.to(roomId).emit('playlistUpdate', playlist);
+      room.currentTime = time;
+      socket.to(roomId).emit('playbackTimeUpdate', time);
     }
   });
 
-  // Actualizar track actual
-  socket.on('updateCurrentTrack', async ({ roomId, track }) => {
+  // Actualizar playlist
+  socket.on('updatePlaylist', ({ roomId, playlist }) => {
+    const room = rooms.get(roomId);
+    if (room) {
+      room.playlist = playlist;
+      socket.to(roomId).emit('playlistUpdate', playlist);
+    }
+  });
+
+  // Actualizar track actual y sincronizar reproducción
+  socket.on('updateCurrentTrack', ({ roomId, track, time = 0 }) => {
     const room = rooms.get(roomId);
     if (room) {
       room.currentTrack = track;
-      io.to(roomId).emit('currentTrackUpdate', track);
+      room.currentTime = time;
+      socket.to(roomId).emit('currentTrackUpdate', { track, time });
     }
   });
 
