@@ -15,13 +15,13 @@ const app = express();
 app.use(cors());
 
 const httpServer = createServer(app);
-
-const io = require("socket.io")(3000, {
+const io = new Server(httpServer, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-  },
+    origin: "*", // En producción, especifica tu dominio
+    methods: ["GET", "POST"]
+  }
 });
+
 const PORT = process.env.PORT || 3000;
 const YT_API_KEY = process.env.YT_API_KEY;
 
@@ -100,7 +100,7 @@ async function getAllVideosFromYouTube(playlistId) {
 }
 
 // Almacenamiento en memoria de las salas
-const rooms = {};
+const rooms = new Map();
 
 // Configuración de Socket.IO
 io.on('connection', (socket) => {
@@ -108,77 +108,55 @@ io.on('connection', (socket) => {
 
   // Crear una nueva sala
   socket.on('createRoom', async (roomId) => {
-    if (rooms[roomId]) {
-      return socket.emit('error', 'La sala ya existe.');
-    }
-
-    rooms[roomId] = {
+    rooms.set(roomId, {
       participants: new Set([socket.id]),
       playlist: [],
       currentTrack: null,
-      skipVotes: new Set(),
-      currentTime: 0,
-    };
+      skipVotes: new Set()
+    });
     socket.join(roomId);
     socket.emit('roomCreated', roomId);
     broadcastParticipants(roomId);
-    console.log(`Sala creada: ${roomId}`);
   });
 
   // Unirse a una sala existente
   socket.on('joinRoom', async (roomId) => {
-    const room = rooms[roomId];
+    const room = rooms.get(roomId);
     if (room) {
       room.participants.add(socket.id);
       socket.join(roomId);
-
+      socket.emit('roomJoined', roomId);
+      
       // Enviar estado actual de la sala al nuevo participante
-      socket.emit('roomJoined', {
-        roomId,
-        currentPlaylist: room.playlist,
-        currentTrack: room.currentTrack,
-        currentTime: room.currentTime,
-      });
-
-      // Notificar a otros participantes
+      socket.emit('playlistUpdate', room.playlist);
+      socket.emit('currentTrackUpdate', room.currentTrack);
       broadcastParticipants(roomId);
-      console.log(`Usuario ${socket.id} se unió a la sala ${roomId}`);
     } else {
       socket.emit('error', 'Sala no encontrada');
     }
   });
 
-  // Actualizar tiempo de reproducción
-  socket.on('updatePlaybackTime', ({ roomId, time }) => {
-    const room = rooms[roomId];
-    if (room) {
-      room.currentTime = time;
-      socket.to(roomId).emit('playbackTimeUpdate', time);
-    }
-  });
-
   // Actualizar playlist
-  socket.on('updatePlaylist', ({ roomId, playlist }) => {
-    const room = rooms[roomId];
+  socket.on('updatePlaylist', async ({ roomId, playlist }) => {
+    const room = rooms.get(roomId);
     if (room) {
       room.playlist = playlist;
-      socket.to(roomId).emit('playlistUpdate', playlist);
+      io.to(roomId).emit('playlistUpdate', playlist);
     }
   });
 
-  // Actualizar track actual y sincronizar reproducción
-  socket.on('updateCurrentTrack', ({ roomId, track, time = 0 }) => {
-    const room = rooms[roomId];
+  // Actualizar track actual
+  socket.on('updateCurrentTrack', async ({ roomId, track }) => {
+    const room = rooms.get(roomId);
     if (room) {
       room.currentTrack = track;
-      room.currentTime = time;
-      socket.to(roomId).emit('currentTrackUpdate', { track, time });
+      io.to(roomId).emit('currentTrackUpdate', track);
     }
   });
 
   // Sistema de votación para saltar
   socket.on('voteSkip', ({ roomId }) => {
-    const room = rooms[roomId];
+    const room = rooms.get(roomId);
     if (room) {
       room.skipVotes.add(socket.id);
       
@@ -189,7 +167,7 @@ io.on('connection', (socket) => {
       } else {
         io.to(roomId).emit('skipVoteUpdate', {
           current: room.skipVotes.size,
-          needed: Math.ceil(room.participants.size / 2),
+          needed: Math.ceil(room.participants.size / 2)
         });
       }
     }
@@ -197,13 +175,13 @@ io.on('connection', (socket) => {
 
   // Mensajes de chat
   socket.on('chatMessage', ({ roomId, message }) => {
-    const room = rooms[roomId];
+    const room = rooms.get(roomId);
     if (room) {
       io.to(roomId).emit('newChatMessage', {
         userId: socket.id,
         message,
         timestamp: new Date().toISOString(),
-        username: `Usuario ${socket.id.slice(0, 4)}`,
+        username: `Usuario ${socket.id.slice(0, 4)}`
       });
     }
   });
@@ -211,14 +189,13 @@ io.on('connection', (socket) => {
   // Desconexión
   socket.on('disconnect', () => {
     console.log('Cliente desconectado:', socket.id);
-    for (const [roomId, room] of Object.entries(rooms)) {
+    for (const [roomId, room] of rooms.entries()) {
       if (room.participants.has(socket.id)) {
         room.participants.delete(socket.id);
         room.skipVotes.delete(socket.id);
         
         if (room.participants.size === 0) {
-          delete rooms[roomId];
-          console.log(`Sala eliminada: ${roomId}`);
+          rooms.delete(roomId);
         } else {
           broadcastParticipants(roomId);
         }
@@ -229,11 +206,11 @@ io.on('connection', (socket) => {
 
 // Función auxiliar para transmitir lista de participantes
 function broadcastParticipants(roomId) {
-  const room = rooms[roomId];
+  const room = rooms.get(roomId);
   if (room) {
     const participantList = Array.from(room.participants).map(id => ({
       id,
-      name: `Usuario ${id.slice(0, 4)}`,
+      name: `Usuario ${id.slice(0, 4)}`
     }));
     io.to(roomId).emit('participantsUpdate', participantList);
   }
