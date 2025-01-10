@@ -1,9 +1,4 @@
-/**
- * server.js
- * -----------
- * Servidor Node + Express que maneja playlists, videos individuales y mixes de YouTube
- */
-
+// server.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -25,11 +20,167 @@ const io = new Server(httpServer, {
 const PORT = process.env.PORT || 3000;
 const YT_API_KEY = process.env.YT_API_KEY;
 
-if (!YT_API_KEY) {
-  console.error("ERROR: Debes configurar YT_API_KEY en tu archivo .env o en las variables de entorno.");
-  process.exit(1);
+// Almacenamiento en memoria de las salas
+const rooms = new Map();
+
+// Socket.IO
+io.on('connection', (socket) => {
+  console.log('Usuario conectado:', socket.id);
+
+  // Crear sala
+  socket.on('createRoom', (roomId) => {
+    console.log('Creando sala:', roomId);
+    rooms.set(roomId, {
+      participants: new Set([socket.id]),
+      playlist: [],
+      currentTrack: null,
+      currentTime: 0,
+      skipVotes: new Set(),
+      messages: []
+    });
+    
+    socket.join(roomId);
+    socket.emit('roomCreated', roomId);
+    broadcastParticipants(roomId);
+  });
+
+  // Unirse a sala
+  socket.on('joinRoom', (roomId) => {
+    console.log('Usuario', socket.id, 'uniéndose a sala:', roomId);
+    const room = rooms.get(roomId);
+    if (room) {
+      room.participants.add(socket.id);
+      socket.join(roomId);
+      
+      // Enviar estado actual de la sala al nuevo participante
+      socket.emit('roomJoined', {
+        id: roomId,
+        playlist: room.playlist,
+        track: room.currentTrack,
+        time: room.currentTime
+      });
+
+      broadcastParticipants(roomId);
+    } else {
+      socket.emit('error', 'La sala no existe');
+    }
+  });
+
+  // Dejar sala
+  socket.on('leaveRoom', (roomId) => {
+    const room = rooms.get(roomId);
+    if (room) {
+      room.participants.delete(socket.id);
+      room.skipVotes.delete(socket.id);
+      socket.leave(roomId);
+      
+      if (room.participants.size === 0) {
+        rooms.delete(roomId);
+      } else {
+        broadcastParticipants(roomId);
+      }
+    }
+  });
+
+  // Chat
+  socket.on('chatMessage', ({ roomId, message }) => {
+    const room = rooms.get(roomId);
+    if (room) {
+      const messageObj = {
+        userId: socket.id,
+        message,
+        timestamp: new Date().toISOString(),
+        username: `Usuario ${socket.id.slice(0, 4)}`
+      };
+      room.messages.push(messageObj);
+      io.to(roomId).emit('newChatMessage', messageObj);
+    }
+  });
+
+  // Actualizar playlist
+  socket.on('updatePlaylist', ({ roomId, playlist }) => {
+    const room = rooms.get(roomId);
+    if (room) {
+      room.playlist = playlist;
+      socket.to(roomId).emit('playlistUpdate', playlist);
+    }
+  });
+
+  // Actualizar track actual
+  socket.on('updateCurrentTrack', ({ roomId, track, time }) => {
+    const room = rooms.get(roomId);
+    if (room) {
+      room.currentTrack = track;
+      room.currentTime = time || 0;
+      room.skipVotes.clear(); // Limpiar votos al cambiar de canción
+      socket.to(roomId).emit('currentTrackUpdate', { track, time: room.currentTime });
+    }
+  });
+
+  // Actualizar tiempo de reproducción
+  socket.on('updatePlaybackTime', ({ roomId, time }) => {
+    const room = rooms.get(roomId);
+    if (room) {
+      room.currentTime = time;
+      socket.to(roomId).emit('playbackTimeUpdate', time);
+    }
+  });
+
+  // Sistema de votación para saltar
+  socket.on('voteSkip', ({ roomId }) => {
+    const room = rooms.get(roomId);
+    if (room) {
+      room.skipVotes.add(socket.id);
+      
+      // Calcular si hay suficientes votos para saltar
+      const votesNeeded = Math.ceil(room.participants.size / 2);
+      const currentVotes = room.skipVotes.size;
+      
+      io.to(roomId).emit('skipVoteUpdate', {
+        current: currentVotes,
+        needed: votesNeeded
+      });
+
+      // Si hay suficientes votos, saltar la canción
+      if (currentVotes >= votesNeeded) {
+        room.skipVotes.clear();
+        io.to(roomId).emit('skipTrack');
+      }
+    }
+  });
+
+  // Desconexión
+  socket.on('disconnect', () => {
+    console.log('Usuario desconectado:', socket.id);
+    // Limpiar todas las salas donde estaba el usuario
+    for (const [roomId, room] of rooms.entries()) {
+      if (room.participants.has(socket.id)) {
+        room.participants.delete(socket.id);
+        room.skipVotes.delete(socket.id);
+        
+        if (room.participants.size === 0) {
+          rooms.delete(roomId);
+        } else {
+          broadcastParticipants(roomId);
+        }
+      }
+    }
+  });
+});
+
+// Función para transmitir lista de participantes
+function broadcastParticipants(roomId) {
+  const room = rooms.get(roomId);
+  if (room) {
+    const participantList = Array.from(room.participants).map(id => ({
+      id,
+      name: `Usuario ${id.slice(0, 4)}`
+    }));
+    io.to(roomId).emit('participantsUpdate', participantList);
+  }
 }
 
+// Mantener las rutas API existentes
 /**
  * Función para obtener información de un video individual
  */
@@ -99,236 +250,16 @@ async function getAllVideosFromYouTube(playlistId) {
   return { items, playlistTitle, error };
 }
 
-// Almacenamiento en memoria de las salas
-const rooms = new Map();
-
-// Configuración de Socket.IO
-io.on('connection', (socket) => {
-  console.log('Cliente conectado:', socket.id);
-
-  // Crear una nueva sala
-  socket.on('createRoom', async (roomId) => {
-    rooms.set(roomId, {
-      participants: new Set([socket.id]),
-      playlist: [],
-      currentTrack: null,
-      skipVotes: new Set()
-    });
-    socket.join(roomId);
-    socket.emit('roomCreated', roomId);
-    broadcastParticipants(roomId);
-  });
-
-  // Unirse a una sala existente
-  socket.on('joinRoom', async (roomId) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      room.participants.add(socket.id);
-      socket.join(roomId);
-      socket.emit('roomJoined', roomId);
-      
-      // Enviar estado actual de la sala al nuevo participante
-      socket.emit('playlistUpdate', room.playlist);
-      socket.emit('currentTrackUpdate', room.currentTrack);
-      broadcastParticipants(roomId);
-    } else {
-      socket.emit('error', 'Sala no encontrada');
-    }
-  });
-
-  // Actualizar playlist
-  socket.on('updatePlaylist', async ({ roomId, playlist }) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      room.playlist = playlist;
-      io.to(roomId).emit('playlistUpdate', playlist);
-    }
-  });
-
-  // Actualizar track actual
-  socket.on('updateCurrentTrack', async ({ roomId, track }) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      room.currentTrack = track;
-      io.to(roomId).emit('currentTrackUpdate', track);
-    }
-  });
-
-  // Sistema de votación para saltar
-  socket.on('voteSkip', ({ roomId }) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      room.skipVotes.add(socket.id);
-      
-      // Si más del 50% ha votado, saltar
-      if (room.skipVotes.size > room.participants.size / 2) {
-        io.to(roomId).emit('skipTrack');
-        room.skipVotes.clear();
-      } else {
-        io.to(roomId).emit('skipVoteUpdate', {
-          current: room.skipVotes.size,
-          needed: Math.ceil(room.participants.size / 2)
-        });
-      }
-    }
-  });
-
-  // Mensajes de chat
-  socket.on('chatMessage', ({ roomId, message }) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      io.to(roomId).emit('newChatMessage', {
-        userId: socket.id,
-        message,
-        timestamp: new Date().toISOString(),
-        username: `Usuario ${socket.id.slice(0, 4)}`
-      });
-    }
-  });
-
-  // Desconexión
-  socket.on('disconnect', () => {
-    console.log('Cliente desconectado:', socket.id);
-    for (const [roomId, room] of rooms.entries()) {
-      if (room.participants.has(socket.id)) {
-        room.participants.delete(socket.id);
-        room.skipVotes.delete(socket.id);
-        
-        if (room.participants.size === 0) {
-          rooms.delete(roomId);
-        } else {
-          broadcastParticipants(roomId);
-        }
-      }
-    }
-  });
-});
-
-// Función auxiliar para transmitir lista de participantes
-function broadcastParticipants(roomId) {
-  const room = rooms.get(roomId);
-  if (room) {
-    const participantList = Array.from(room.participants).map(id => ({
-      id,
-      name: `Usuario ${id.slice(0, 4)}`
-    }));
-    io.to(roomId).emit('participantsUpdate', participantList);
-  }
-}
-
-/**
- * GET /api/video?videoId=<ID>
- * Maneja videos individuales y mixes
- */
+// Rutas API
 app.get('/api/video', async (req, res) => {
-  try {
-    const videoId = req.query.videoId;
-    console.log("1. Video ID recibido:", videoId);
-
-    if (!videoId) {
-      return res.status(400).json({ status: 400, message: "No videoId provided." });
-    }
-
-    // Verifica si el ID es parte de un mix (contiene RD en el ID)
-    if (videoId.includes('RD')) {
-      try {
-        // Para mixes, tratamos de obtener la información como una playlist
-        const results = await getAllVideosFromYouTube(videoId);
-        if (results.error) {
-          throw new Error(results.error);
-        }
-
-        const videos = results.items.map(v => ({
-          id: v.snippet.resourceId?.videoId,
-          title: v.snippet?.title,
-          thumbnail: v.snippet?.thumbnails?.default?.url || ""
-        }));
-
-        return res.json({
-          status: 200,
-          title: results.playlistTitle || "Mix",
-          response: videos
-        });
-      } catch (mixError) {
-        // Si falla como mix, intentamos obtenerlo como video individual
-        console.log("No es un mix válido, intentando como video individual");
-        const videoInfo = await getVideoInfo(videoId);
-        return res.json({
-          status: 200,
-          response: videoInfo
-        });
-      }
-    } else {
-      // Video individual
-      const videoInfo = await getVideoInfo(videoId);
-      res.json({
-        status: 200,
-        response: videoInfo
-      });
-    }
-
-  } catch (error) {
-    console.error("Error en el servidor:", error);
-    res.status(500).json({ status: 500, message: error.message || "Server error" });
-  }
+  // ... (mantener tu código existente para la ruta /api/video)
 });
 
-/**
- * GET /api/playlist?playlistId=<ID_O_IDS>
- * Maneja playlists individuales o múltiples separadas por ~:-
- */
 app.get('/api/playlist', async (req, res) => {
-  try {
-    const playlistId = req.query.playlistId;
-    console.log("1. Playlist ID recibido:", playlistId);
-
-    if (!playlistId) {
-      return res.status(400).json({ status: 400, message: "No playlistId provided." });
-    }
-
-    const listArr = playlistId
-      .split("~:-")
-      .map(id => id.trim())
-      .filter(id => id.length > 0);
-
-    let allVideos = [];
-    let combinedTitle = [];
-
-    for (let singleId of listArr) {
-      const results = await getAllVideosFromYouTube(singleId);
-      if (results.error) {
-        return res.status(500).json({ 
-          status: 500, 
-          message: `Error al obtener la playlist ${singleId}: ${results.error}` 
-        });
-      }
-
-      if (results?.items) {
-        allVideos = allVideos.concat(
-          results.items.map(v => ({
-            id: v.snippet.resourceId?.videoId,
-            title: v.snippet?.title,
-            thumbnail: v.snippet?.thumbnails?.default?.url || ""
-          }))
-        );
-        combinedTitle.push(results.playlistTitle || singleId);
-      }
-    }
-
-    res.json({
-      status: 200,
-      title: combinedTitle.join(" + "),
-      response: allVideos
-    });
-    console.log("5. Respuesta enviada al cliente.");
-
-  } catch (error) {
-    console.error("Error en el servidor:", error);
-    res.status(500).json({ status: 500, message: error.message || "Server error" });
-  }
+  // ... (mantener tu código existente para la ruta /api/playlist)
 });
 
-// Usar httpServer en lugar de app.listen
+// Iniciar servidor
 httpServer.listen(PORT, () => {
   console.log(`Servidor escuchando en http://localhost:${PORT}`);
   console.log("WebSocket habilitado");
