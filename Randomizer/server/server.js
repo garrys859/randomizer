@@ -8,144 +8,16 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
-const { createServer } = require('http');
-const { Server } = require('socket.io');
 
 const app = express();
-const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
-
 app.use(cors());
 
 const PORT = process.env.PORT || 3000;
 const YT_API_KEY = process.env.YT_API_KEY;
 
-// Mantener registro de las salas activas
-const rooms = new Map();
-
-// Configuración de Socket.IO
-io.on('connection', (socket) => {
-  console.log('Cliente conectado:', socket.id);
-
-  // Crear sala
-  socket.on('createRoom', (roomId) => {
-    rooms.set(roomId, {
-      playlist: [],
-      currentTrack: null,
-      currentTime: 0,
-      isPlaying: false,
-      messages: [],
-      participants: new Set([socket.id])
-    });
-    socket.join(roomId);
-    socket.emit('roomCreated', roomId);
-    broadcastParticipants(roomId);
-  });
-
-  // Unirse a sala
-  socket.on('joinRoom', (roomId) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      room.participants.add(socket.id);
-      socket.join(roomId);
-      
-      // Enviar estado actual de la sala al nuevo participante
-      socket.emit('roomJoined', {
-        roomId,
-        playlist: room.playlist,
-        currentTrack: room.currentTrack,
-        currentTime: room.currentTime,
-        isPlaying: room.isPlaying,
-        messages: room.messages
-      });
-      
-      broadcastParticipants(roomId);
-    } else {
-      socket.emit('error', 'Sala no encontrada');
-    }
-  });
-
-  // Actualizar playlist
-  socket.on('updatePlaylist', ({ roomId, playlist }) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      room.playlist = playlist;
-      socket.to(roomId).emit('playlistUpdated', playlist);
-    }
-  });
-
-  // Actualizar estado de reproducción
-  socket.on('updatePlayback', ({ roomId, currentTrack, currentTime, isPlaying }) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      room.currentTrack = currentTrack;
-      room.currentTime = currentTime;
-      room.isPlaying = isPlaying;
-      socket.to(roomId).emit('playbackUpdated', { currentTrack, currentTime, isPlaying });
-    }
-  });
-
-  // Mensajes de chat
-  socket.on('chatMessage', ({ roomId, message }) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      const messageObject = {
-        id: Date.now(),
-        userId: socket.id,
-        message,
-        timestamp: new Date().toISOString(),
-        username: `Usuario ${socket.id.slice(0, 4)}`
-      };
-      room.messages.push(messageObject);
-      io.to(roomId).emit('newMessage', messageObject);
-    }
-  });
-
-  // Salir de sala
-  socket.on('leaveRoom', (roomId) => {
-    const room = rooms.get(roomId);
-    if (room) {
-      room.participants.delete(socket.id);
-      socket.leave(roomId);
-      
-      if (room.participants.size === 0) {
-        rooms.delete(roomId);
-      } else {
-        broadcastParticipants(roomId);
-      }
-    }
-  });
-
-  // Manejo de desconexión
-  socket.on('disconnect', () => {
-    for (const [roomId, room] of rooms.entries()) {
-      if (room.participants.has(socket.id)) {
-        room.participants.delete(socket.id);
-        if (room.participants.size === 0) {
-          rooms.delete(roomId);
-        } else {
-          broadcastParticipants(roomId);
-        }
-      }
-    }
-  });
-});
-
-// Función auxiliar para transmitir lista de participantes
-function broadcastParticipants(roomId) {
-  const room = rooms.get(roomId);
-  if (room) {
-    const participants = Array.from(room.participants).map(id => ({
-      id,
-      name: `Usuario ${id.slice(0, 4)}`
-    }));
-    io.to(roomId).emit('participantsUpdated', participants);
-  }
+if (!YT_API_KEY) {
+  console.error("ERROR: Debes configurar YT_API_KEY en tu archivo .env o en las variables de entorno.");
+  process.exit(1);
 }
 
 /**
@@ -329,8 +201,7 @@ app.get('/api/playlist', async (req, res) => {
   }
 });
 
-httpServer.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`Servidor escuchando en http://localhost:${PORT}`);
-  console.log("WebSocket habilitado");
   console.log("Pulsa CTRL+C para detener.");
 });
