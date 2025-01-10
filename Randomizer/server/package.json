@@ -4,7 +4,8 @@
   "description": "Servidor para randomizar playlists de YouTube",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+     "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "keywords": [],
   "author": "",
